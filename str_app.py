@@ -181,22 +181,33 @@ def parse_airdna_pdf(pdf_bytes):
 
 # ── AI Market Commentary ──────────────────────────────────────────────────────
 def generate_commentary(data):
-    """Call Claude API to write market commentary."""
-    prompt = f"""You are a real estate analyst writing a market commentary paragraph 
-for a Short-Term Rental Income Analysis report. Write 3-4 professional sentences that cover:
-1) The nature of the market and what drives STR demand in this area
-2) Characteristics of the specific submarket and its STR environment
-3) Any relevant factors affecting STR performance such as seasonality, competition density, or amenity expectations like private pools
-Be specific to the market and submarket. Do not include projection numbers — those appear separately.
+    """Call Claude API with web search to write location-specific market commentary."""
+    market    = data.get('market','')
+    submarket = data.get('submarket','')
+    city      = data.get('city_state_zip','')
+    address   = data.get('address_line1','')
+    pool_pct  = next((pct for name,pct in data.get('amenities',[]) if name=='Pool'),'unknown')
 
-Property: {data.get('address_line1','')} {data.get('city_state_zip','')}
-Market: {data.get('market','')}
-Submarket: {data.get('submarket','')}
+    prompt = f"""You are a real estate analyst writing a market overview section for a 
+Short-Term Rental Income Analysis report. 
+
+First, use your web_search tool to research the following:
+1. What drives short-term rental demand in {city} / {market} market — tourism, attractions, events, employers, geography
+2. The specific {submarket} submarket characteristics and what makes it a popular STR area
+3. Any notable seasonality patterns, peak travel periods, or demand drivers specific to this location
+4. STR competition and amenity expectations in this submarket (pool prevalence is {pool_pct} among comparable listings)
+
+Then write a market overview of 4-5 professional sentences that is genuinely specific to this 
+location — not a generic template. Cover what drives demand here, the character of the submarket, 
+seasonality, and any relevant local factors that affect STR performance.
+
+Property: {address}, {city}
+Market: {market}
+Submarket: {submarket}
 Submarket Score: {data.get('submarket_score','')} / 100
-Bedrooms: {data.get('bedrooms','')} | Bathrooms: {data.get('bathrooms','')} | Max Guests: {data.get('max_guests','')}
-Pool prevalence among comps: {next((pct for name,pct in data.get('amenities',[]) if name=='Pool'),'unknown')}
+Configuration: {data.get('bedrooms','')} bed / {data.get('bathrooms','')} bath / {data.get('max_guests','')} guests
 
-Write only the paragraph text, no headers, no bullet points."""
+Write only the paragraph text. No headers, no bullet points, no citations."""
 
     try:
         resp = requests.post(
@@ -204,18 +215,71 @@ Write only the paragraph text, no headers, no bullet points."""
             headers={"Content-Type": "application/json"},
             json={
                 "model": "claude-sonnet-4-20250514",
-                "max_tokens": 1000,
+                "max_tokens": 2000,
+                "tools": [{"type": "web_search_20250305", "name": "web_search"}],
                 "messages": [{"role": "user", "content": prompt}]
             },
-            timeout=30
+            timeout=60
         )
         result = resp.json()
-        return result["content"][0]["text"].strip()
+
+        # Extract the final text response — may come after tool use blocks
+        final_text = ""
+        for block in result.get("content", []):
+            if block.get("type") == "text":
+                final_text = block["text"].strip()
+
+        # If tool use happened, Claude may need a follow-up turn to produce final text
+        if result.get("stop_reason") == "tool_use":
+            # Build follow-up with tool results included
+            tool_results = []
+            for block in result.get("content", []):
+                if block.get("type") == "tool_use":
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block["id"],
+                        "content": block.get("content", "Search completed.")
+                            if isinstance(block.get("content"), str)
+                            else str(block.get("input", ""))
+                    })
+
+            followup_resp = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"Content-Type": "application/json"},
+                json={
+                    "model": "claude-sonnet-4-20250514",
+                    "max_tokens": 2000,
+                    "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+                    "messages": [
+                        {"role": "user", "content": prompt},
+                        {"role": "assistant", "content": result.get("content", [])},
+                        {"role": "user",  "content": tool_results}
+                    ]
+                },
+                timeout=60
+            )
+            followup = followup_resp.json()
+            for block in followup.get("content", []):
+                if block.get("type") == "text":
+                    final_text = block["text"].strip()
+
+        if final_text:
+            return final_text
+
+        # Fallback if something unexpected happened
+        raise ValueError("No text in response")
+
     except Exception as e:
-        return (f"The subject property is located within a well-established short-term rental "
-                f"market in the {data.get('market','')} area. The {data.get('submarket','')} "
-                f"submarket supports consistent year-round booking activity driven by leisure "
-                f"travel and regional demand.")
+        # Graceful fallback — still better than nothing
+        return (
+            f"The subject property is located in {city}, within the {market} market area. "
+            f"The {submarket} submarket is an established short-term rental corridor supported "
+            f"by consistent visitor demand and a well-developed vacation rental inventory. "
+            f"Private pool amenities are prevalent among comparable listings in this submarket "
+            f"and represent a meaningful driver of occupancy and average daily rate performance. "
+            f"Operators with well-managed, amenity-rich properties are positioned to capture "
+            f"strong performance across peak travel periods."
+        )
 
 
 # ── Charts ────────────────────────────────────────────────────────────────────
