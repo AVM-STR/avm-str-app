@@ -313,7 +313,7 @@ METHODOLOGY_SECTIONS = [
 def build_pdf(data, future_df, past_df, client, loan_num, report_date, commentary, buf,
               photo_override=None, map_override=None,
               client_address="", client_phone="", client_order_num="",
-              borrower="", avm_file_id=""):
+              borrower="", avm_file_id="", property_type="Single-Family Residence"):
     styles = make_styles()
     addr1 = data.get("address_line1","")
     city  = data.get("city_state_zip","")
@@ -364,7 +364,7 @@ def build_pdf(data, future_df, past_df, client, loan_num, report_date, commentar
         [Paragraph("<b>Subject Property:</b>", lk), ""],
         [Paragraph(addr1, lv), ""],
         [Paragraph(city, lv), ""],
-        [Paragraph("<b>Property Type:</b>", lk),  Paragraph("Single-Family Residence", lv)],
+        [Paragraph("<b>Property Type:</b>", lk),  Paragraph(property_type, lv)],
         [Paragraph("<b>Configuration:</b>", lk),
          Paragraph(f"{data.get('bedrooms','')} Bedrooms | {data.get('bathrooms','')} Bathrooms", lv)],
         [Paragraph("<b>Maximum Guests:</b>", lk),  Paragraph(data.get("max_guests",""), lv)],
@@ -603,7 +603,7 @@ def build_pdf(data, future_df, past_df, client, loan_num, report_date, commentar
     so_rows = [
         ["Prepared By",         "Absolute Value Management"],
         ["Subject Property",    full_address],
-        ["Property Type",       "Single-Family Residence"],
+        ["Property Type",       property_type],
         ["Configuration",       f"{data.get('bedrooms','')} Bedrooms | "
                                 f"{data.get('bathrooms','')} Bathrooms | "
                                 f"{data.get('max_guests','')} Guests Max"],
@@ -717,7 +717,14 @@ with col11:
     report_date = st.text_input("Report Date",
         value=date.today().strftime("%B %d, %Y"))
 with col12:
-    pass  # spacer
+    property_type = st.selectbox("Property Type", [
+        "Single-Family Residence",
+        "Condominium",
+        "Townhouse",
+        "Multi-Family (2-4 Units)",
+        "Single Unit in Multi-Family",
+        "Manufactured Home",
+    ])
 
 st.subheader("4. Market Overview")
 market_overview = st.text_area(
@@ -775,7 +782,7 @@ if st.button("⚡ Generate Report", type="primary", use_container_width=True):
                       photo_override=photo_override, map_override=map_override,
                       client_address=client_address, client_phone=client_phone,
                       client_order_num=client_order_num, borrower=borrower,
-                      avm_file_id=avm_file_id)
+                      avm_file_id=avm_file_id, property_type=property_type)
             buf.seek(0)
 
         addr_slug = re.sub(r"[^a-zA-Z0-9]+","_",
