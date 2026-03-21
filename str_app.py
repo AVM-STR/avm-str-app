@@ -180,108 +180,6 @@ def parse_airdna_pdf(pdf_bytes):
 
 
 # ── AI Market Commentary ──────────────────────────────────────────────────────
-def generate_commentary(data):
-    """Call Claude API with web search to write location-specific market commentary."""
-    market    = data.get('market','')
-    submarket = data.get('submarket','')
-    city      = data.get('city_state_zip','')
-    address   = data.get('address_line1','')
-    pool_pct  = next((pct for name,pct in data.get('amenities',[]) if name=='Pool'),'unknown')
-
-    prompt = f"""You are a real estate analyst writing a market overview section for a 
-Short-Term Rental Income Analysis report. 
-
-First, use your web_search tool to research the following:
-1. What drives short-term rental demand in {city} / {market} market — tourism, attractions, events, employers, geography
-2. The specific {submarket} submarket characteristics and what makes it a popular STR area
-3. Any notable seasonality patterns, peak travel periods, or demand drivers specific to this location
-4. STR competition and amenity expectations in this submarket (pool prevalence is {pool_pct} among comparable listings)
-
-Then write a market overview of 4-5 professional sentences that is genuinely specific to this 
-location — not a generic template. Cover what drives demand here, the character of the submarket, 
-seasonality, and any relevant local factors that affect STR performance.
-
-Property: {address}, {city}
-Market: {market}
-Submarket: {submarket}
-Submarket Score: {data.get('submarket_score','')} / 100
-Configuration: {data.get('bedrooms','')} bed / {data.get('bathrooms','')} bath / {data.get('max_guests','')} guests
-
-Write only the paragraph text. No headers, no bullet points, no citations."""
-
-    try:
-        resp = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={"Content-Type": "application/json"},
-            json={
-                "model": "claude-sonnet-4-20250514",
-                "max_tokens": 2000,
-                "tools": [{"type": "web_search_20250305", "name": "web_search"}],
-                "messages": [{"role": "user", "content": prompt}]
-            },
-            timeout=60
-        )
-        result = resp.json()
-
-        # Extract the final text response — may come after tool use blocks
-        final_text = ""
-        for block in result.get("content", []):
-            if block.get("type") == "text":
-                final_text = block["text"].strip()
-
-        # If tool use happened, Claude may need a follow-up turn to produce final text
-        if result.get("stop_reason") == "tool_use":
-            # Build follow-up with tool results included
-            tool_results = []
-            for block in result.get("content", []):
-                if block.get("type") == "tool_use":
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block["id"],
-                        "content": block.get("content", "Search completed.")
-                            if isinstance(block.get("content"), str)
-                            else str(block.get("input", ""))
-                    })
-
-            followup_resp = requests.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={"Content-Type": "application/json"},
-                json={
-                    "model": "claude-sonnet-4-20250514",
-                    "max_tokens": 2000,
-                    "tools": [{"type": "web_search_20250305", "name": "web_search"}],
-                    "messages": [
-                        {"role": "user", "content": prompt},
-                        {"role": "assistant", "content": result.get("content", [])},
-                        {"role": "user",  "content": tool_results}
-                    ]
-                },
-                timeout=60
-            )
-            followup = followup_resp.json()
-            for block in followup.get("content", []):
-                if block.get("type") == "text":
-                    final_text = block["text"].strip()
-
-        if final_text:
-            return final_text
-
-        # Fallback if something unexpected happened
-        raise ValueError("No text in response")
-
-    except Exception as e:
-        # Graceful fallback — still better than nothing
-        return (
-            f"The subject property is located in {city}, within the {market} market area. "
-            f"The {submarket} submarket is an established short-term rental corridor supported "
-            f"by consistent visitor demand and a well-developed vacation rental inventory. "
-            f"Private pool amenities are prevalent among comparable listings in this submarket "
-            f"and represent a meaningful driver of occupancy and average daily rate performance. "
-            f"Operators with well-managed, amenity-rich properties are positioned to capture "
-            f"strong performance across peak travel periods."
-        )
-
-
 # ── Charts ────────────────────────────────────────────────────────────────────
 BRAND_BLUE = "#2E5FA3"
 
@@ -821,6 +719,15 @@ with col11:
 with col12:
     pass  # spacer
 
+st.subheader("4. Market Overview")
+market_overview = st.text_area(
+    "Market Overview",
+    placeholder="Write 3-5 sentences describing the local STR market — what drives demand, submarket characteristics, seasonality, and any relevant local factors...",
+    height=130,
+    label_visibility="collapsed"
+)
+st.caption("This text appears in the Market Overview & Commentary section of the report.")
+
 st.divider()
 
 # ── Generate ──────────────────────────────────────────────────────────────────
@@ -831,13 +738,14 @@ if st.button("⚡ Generate Report", type="primary", use_container_width=True):
         st.error("Please upload both AirDNA CSV exports.")
     elif not client or not loan_num:
         st.error("Please enter the client/lender name and loan number.")
+    elif not market_overview.strip():
+        st.error("Please enter a market overview before generating.")
     else:
         with st.spinner("Extracting data from AirDNA PDF..."):
             pdf_bytes = airdna_pdf.read()
             data = parse_airdna_pdf(pdf_bytes)
 
-        with st.spinner("Generating AI market commentary..."):
-            commentary = generate_commentary(data)
+        commentary = market_overview.strip()
 
         with st.spinner("Building report..."):
             future_df = pd.read_csv(future_csv)
@@ -889,4 +797,3 @@ if st.button("⚡ Generate Report", type="primary", use_container_width=True):
                      if k not in ["photo_path","comps","amenities"]})
             st.write(f"**Comps extracted:** {len(data.get('comps',[]))}")
             st.write(f"**Amenities extracted:** {len(data.get('amenities',[]))}")
-            st.write(f"**AI Commentary:** {commentary}")
