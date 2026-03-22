@@ -666,141 +666,378 @@ st.set_page_config(
     layout="centered"
 )
 
-# Header
+# ── Password Protection ───────────────────────────────────────────────────────
+def check_password():
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+    if st.session_state.authenticated:
+        return True
+    st.image(LOGO_PATH, width=220)
+    st.title("AVM STR Report Generator")
+    st.divider()
+    pwd = st.text_input("Enter password to continue", type="password", key="pwd_input")
+    if st.button("Login", use_container_width=True):
+        try:
+            correct = st.secrets["APP_PASSWORD"]
+        except Exception:
+            correct = os.environ.get("APP_PASSWORD", "avm2026")
+        if pwd == correct:
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("Incorrect password.")
+    return False
+
+if not check_password():
+    st.stop()
+
+# ── Storage Helpers ───────────────────────────────────────────────────────────
+def load_clients():
+    try:
+        raw = st.session_state.get("_clients_store")
+        if raw:
+            return json.loads(raw)
+    except Exception:
+        pass
+    # Try file-based fallback
+    try:
+        path = os.path.join(os.path.dirname(__file__), "clients.json")
+        if os.path.exists(path):
+            with open(path) as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+def save_clients(clients):
+    st.session_state["_clients_store"] = json.dumps(clients)
+    try:
+        path = os.path.join(os.path.dirname(__file__), "clients.json")
+        with open(path, "w") as f:
+            json.dump(clients, f)
+    except Exception:
+        pass
+
+def load_orders():
+    try:
+        raw = st.session_state.get("_orders_store")
+        if raw:
+            return json.loads(raw)
+    except Exception:
+        pass
+    try:
+        path = os.path.join(os.path.dirname(__file__), "orders.json")
+        if os.path.exists(path):
+            with open(path) as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return []
+
+def save_orders(orders):
+    st.session_state["_orders_store"] = json.dumps(orders)
+    try:
+        path = os.path.join(os.path.dirname(__file__), "orders.json")
+        with open(path, "w") as f:
+            json.dump(orders, f)
+    except Exception:
+        pass
+
+def log_order(address, property_type, client, borrower, loan_num, avm_file_id, report_date):
+    orders = load_orders()
+    orders.insert(0, {
+        "date":          report_date,
+        "address":       address,
+        "property_type": property_type,
+        "client":        client,
+        "borrower":      borrower,
+        "loan_number":   loan_num,
+        "avm_file_id":   avm_file_id,
+    })
+    save_orders(orders)
+
+# ── Header ────────────────────────────────────────────────────────────────────
 st.image(LOGO_PATH, width=220)
 st.title("STR Income Analysis Generator")
-st.markdown("Upload the AirDNA PDF and two CSVs, fill in three fields, and generate your report.")
 st.divider()
 
-# ── File Uploads ──────────────────────────────────────────────────────────────
-st.subheader("1. Upload AirDNA Files")
-col1, col2, col3 = st.columns(3)
-with col1:
-    airdna_pdf = st.file_uploader("AirDNA PDF", type="pdf", key="pdf")
-with col2:
-    future_csv = st.file_uploader("Future Monthly Revenue CSV", type="csv", key="future")
-with col3:
-    past_csv = st.file_uploader("Past Annual Revenue CSV", type="csv", key="past")
+# ── Tabs ──────────────────────────────────────────────────────────────────────
+tab_generate, tab_clients, tab_history = st.tabs([
+    "⚡ Generate Report", "👥 Client Database", "📋 Order History"
+])
 
-st.subheader("2. Property Photos (Optional)")
-col_p1, col_p2 = st.columns(2)
-with col_p1:
-    property_photo = st.file_uploader("Property Photo", type=["jpg","jpeg","png"], key="photo",
-                                       help="Front exterior photo of the subject property")
-with col_p2:
-    map_photo = st.file_uploader("Comparable Listing Map", type=["jpg","jpeg","png"], key="map",
-                                  help="Screenshot of the AirDNA comp map")
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 1 — GENERATE REPORT
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_generate:
 
-# ── Assignment Info ───────────────────────────────────────────────────────────
-st.subheader("3. Assignment Info")
-col4, col5, col6 = st.columns(3)
-with col4:
-    client = st.text_input("Client / Lender", placeholder="Annie Mac Home Mortgage")
-with col5:
-    client_address = st.text_input("Client Address", placeholder="123 Main St, Boston, MA")
-with col6:
-    client_phone = st.text_input("Client Phone", placeholder="617-555-1234")
+    # File Uploads
+    st.subheader("1. Upload AirDNA Files")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        airdna_pdf = st.file_uploader("AirDNA PDF", type="pdf", key="pdf")
+    with col2:
+        future_csv = st.file_uploader("Future Monthly Revenue CSV", type="csv", key="future")
+    with col3:
+        past_csv = st.file_uploader("Past Annual Revenue CSV", type="csv", key="past")
 
-col7, col8, col9 = st.columns(3)
-with col7:
-    client_order_num = st.text_input("Client Order Number", placeholder="ORD-12345")
-with col8:
-    borrower = st.text_input("Borrower", placeholder="John Smith")
-with col9:
-    loan_num = st.text_input("Loan Number", placeholder="2008727778")
+    st.subheader("2. Property Photos (Optional)")
+    col_p1, col_p2 = st.columns(2)
+    with col_p1:
+        property_photo = st.file_uploader("Property Photo", type=["jpg","jpeg","png"], key="photo",
+                                           help="Front exterior photo of the subject property")
+    with col_p2:
+        map_photo = st.file_uploader("Comparable Listing Map", type=["jpg","jpeg","png"], key="map",
+                                      help="Screenshot of the AirDNA comp map")
 
-col10, col11, col12 = st.columns(3)
-with col10:
-    avm_file_id = st.text_input("AVM File ID", placeholder="AVM-2026-001")
-with col11:
-    from datetime import date
-    report_date = st.text_input("Report Date",
-        value=date.today().strftime("%B %d, %Y"))
-with col12:
-    property_type = st.selectbox("Property Type", [
-        "Single-Family Residence",
-        "Condominium",
-        "Townhouse",
-        "Multi-Family (2-4 Units)",
-        "Single Unit in Multi-Family",
-        "Manufactured Home",
-    ])
+    # Assignment Info
+    st.subheader("3. Assignment Info")
 
-st.subheader("4. Market Overview")
-market_overview = st.text_area(
-    "Market Overview",
-    placeholder="Write 3-5 sentences describing the local STR market — what drives demand, submarket characteristics, seasonality, and any relevant local factors...",
-    height=130,
-    label_visibility="collapsed"
-)
-st.caption("This text appears in the Market Overview & Commentary section of the report.")
+    # Client autofill
+    clients = load_clients()
+    client_names = ["-- Enter manually --"] + sorted(clients.keys())
+    selected_client = st.selectbox("Select existing client (or enter manually below)",
+                                    client_names, key="client_select")
 
-st.divider()
-
-# ── Generate ──────────────────────────────────────────────────────────────────
-if st.button("⚡ Generate Report", type="primary", use_container_width=True):
-    if not airdna_pdf:
-        st.error("Please upload the AirDNA PDF.")
-    elif not future_csv or not past_csv:
-        st.error("Please upload both AirDNA CSV exports.")
-    elif not client or not loan_num:
-        st.error("Please enter the client/lender name and loan number.")
-    elif not market_overview.strip():
-        st.error("Please enter a market overview before generating.")
+    # Pre-fill values from selected client
+    if selected_client != "-- Enter manually --" and selected_client in clients:
+        c = clients[selected_client]
+        prefill_client        = c.get("name", "")
+        prefill_client_address = c.get("address", "")
+        prefill_client_phone  = c.get("phone", "")
     else:
-        with st.spinner("Extracting data from AirDNA PDF..."):
-            pdf_bytes = airdna_pdf.read()
-            data = parse_airdna_pdf(pdf_bytes)
+        prefill_client        = ""
+        prefill_client_address = ""
+        prefill_client_phone  = ""
 
-        commentary = market_overview.strip()
+    col4, col5, col6 = st.columns(3)
+    with col4:
+        client = st.text_input("Client / Lender", value=prefill_client,
+                                placeholder="Annie Mac Home Mortgage")
+    with col5:
+        client_address = st.text_input("Client Address", value=prefill_client_address,
+                                        placeholder="123 Main St, Boston, MA")
+    with col6:
+        client_phone = st.text_input("Client Phone", value=prefill_client_phone,
+                                      placeholder="617-555-1234")
 
-        with st.spinner("Building report..."):
-            future_df = pd.read_csv(future_csv)
-            future_df.columns = [c.strip().lower().replace("\ufeff","") for c in future_df.columns]
-            past_df = pd.read_csv(past_csv)
-            past_df.columns = [c.strip().lower().replace("\ufeff","") for c in past_df.columns]
+    col7, col8, col9 = st.columns(3)
+    with col7:
+        client_order_num = st.text_input("Client Order Number", placeholder="ORD-12345")
+    with col8:
+        borrower = st.text_input("Borrower", placeholder="John Smith")
+    with col9:
+        loan_num = st.text_input("Loan Number", placeholder="2008727778")
 
-            # Save optional photo uploads to temp files
-            photo_override = None
-            if property_photo:
-                tmp_photo = tempfile.NamedTemporaryFile(delete=False,
-                    suffix=os.path.splitext(property_photo.name)[1])
-                tmp_photo.write(property_photo.read())
-                tmp_photo.close()
-                photo_override = tmp_photo.name
+    col10, col11, col12 = st.columns(3)
+    with col10:
+        avm_file_id = st.text_input("AVM File ID", placeholder="AVM-2026-001")
+    with col11:
+        from datetime import date
+        report_date = st.text_input("Report Date",
+            value=date.today().strftime("%B %d, %Y"))
+    with col12:
+        property_type = st.selectbox("Property Type", [
+            "Single-Family Residence",
+            "Condominium",
+            "Townhouse",
+            "Multi-Family (2-4 Units)",
+            "Single Unit in Multi-Family",
+            "Manufactured Home",
+        ])
 
-            map_override = None
-            if map_photo:
-                tmp_map = tempfile.NamedTemporaryFile(delete=False,
-                    suffix=os.path.splitext(map_photo.name)[1])
-                tmp_map.write(map_photo.read())
-                tmp_map.close()
-                map_override = tmp_map.name
+    st.subheader("4. Market Overview")
+    market_overview = st.text_area(
+        "Market Overview",
+        placeholder="Write 3-5 sentences describing the local STR market — what drives demand, submarket characteristics, seasonality, and any relevant local factors...",
+        height=130,
+        label_visibility="collapsed"
+    )
+    st.caption("This text appears in the Market Overview & Commentary section of the report.")
+    st.divider()
 
-            buf = io.BytesIO()
-            build_pdf(data, future_df, past_df, client, loan_num, report_date, commentary, buf,
-                      photo_override=photo_override, map_override=map_override,
-                      client_address=client_address, client_phone=client_phone,
-                      client_order_num=client_order_num, borrower=borrower,
-                      avm_file_id=avm_file_id, property_type=property_type)
-            buf.seek(0)
+    if st.button("⚡ Generate Report", type="primary", use_container_width=True):
+        if not airdna_pdf:
+            st.error("Please upload the AirDNA PDF.")
+        elif not future_csv or not past_csv:
+            st.error("Please upload both AirDNA CSV exports.")
+        elif not client or not loan_num:
+            st.error("Please enter the client/lender name and loan number.")
+        elif not market_overview.strip():
+            st.error("Please enter a market overview before generating.")
+        else:
+            with st.spinner("Extracting data from AirDNA PDF..."):
+                pdf_bytes = airdna_pdf.read()
+                data = parse_airdna_pdf(pdf_bytes)
 
-        addr_slug = re.sub(r"[^a-zA-Z0-9]+","_",
-                           data.get("address_line1","Report")).strip("_")
-        filename = f"AVM_STR_{addr_slug}.pdf"
+            commentary = market_overview.strip()
 
-        st.success("Report generated!")
-        st.download_button(
-            label="📄 Download Report PDF",
-            data=buf,
-            file_name=filename,
-            mime="application/pdf",
-            use_container_width=True
-        )
+            with st.spinner("Building report..."):
+                future_df = pd.read_csv(future_csv)
+                future_df.columns = [c.strip().lower().replace("\ufeff","") for c in future_df.columns]
+                past_df = pd.read_csv(past_csv)
+                past_df.columns = [c.strip().lower().replace("\ufeff","") for c in past_df.columns]
 
-        # Preview extracted data
-        with st.expander("View extracted data"):
-            st.json({k:v for k,v in data.items()
-                     if k not in ["photo_path","comps","amenities"]})
-            st.write(f"**Comps extracted:** {len(data.get('comps',[]))}")
-            st.write(f"**Amenities extracted:** {len(data.get('amenities',[]))}")
+                photo_override = None
+                if property_photo:
+                    tmp_photo = tempfile.NamedTemporaryFile(delete=False,
+                        suffix=os.path.splitext(property_photo.name)[1])
+                    tmp_photo.write(property_photo.read())
+                    tmp_photo.close()
+                    photo_override = tmp_photo.name
+
+                map_override = None
+                if map_photo:
+                    tmp_map = tempfile.NamedTemporaryFile(delete=False,
+                        suffix=os.path.splitext(map_photo.name)[1])
+                    tmp_map.write(map_photo.read())
+                    tmp_map.close()
+                    map_override = tmp_map.name
+
+                buf = io.BytesIO()
+                build_pdf(data, future_df, past_df, client, loan_num, report_date, commentary, buf,
+                          photo_override=photo_override, map_override=map_override,
+                          client_address=client_address, client_phone=client_phone,
+                          client_order_num=client_order_num, borrower=borrower,
+                          avm_file_id=avm_file_id, property_type=property_type)
+                buf.seek(0)
+
+            # Log the order
+            log_order(
+                address=f"{data.get('address_line1','')} {data.get('city_state_zip','')}",
+                property_type=property_type,
+                client=client,
+                borrower=borrower,
+                loan_num=loan_num,
+                avm_file_id=avm_file_id,
+                report_date=report_date
+            )
+
+            addr_slug = re.sub(r"[^a-zA-Z0-9]+","_",
+                               data.get("address_line1","Report")).strip("_")
+            filename = f"AVM_STR_{addr_slug}.pdf"
+
+            st.success("✅ Report generated and logged!")
+            st.download_button(
+                label="📄 Download Report PDF",
+                data=buf,
+                file_name=filename,
+                mime="application/pdf",
+                use_container_width=True
+            )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 2 — CLIENT DATABASE
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_clients:
+    st.subheader("Client Database")
+    st.caption("Save client info here once — it will auto-fill on the Generate tab.")
+
+    clients = load_clients()
+
+    # Add / Edit client form
+    with st.expander("➕ Add New Client", expanded=len(clients) == 0):
+        nc1, nc2, nc3 = st.columns(3)
+        with nc1:
+            new_name    = st.text_input("Client / Lender Name *", key="new_name",
+                                         placeholder="Annie Mac Home Mortgage")
+        with nc2:
+            new_address = st.text_input("Client Address", key="new_address",
+                                         placeholder="123 Main St, Boston, MA")
+        with nc3:
+            new_phone   = st.text_input("Client Phone", key="new_phone",
+                                         placeholder="617-555-1234")
+
+        if st.button("💾 Save Client", use_container_width=True):
+            if not new_name.strip():
+                st.error("Client name is required.")
+            else:
+                clients[new_name.strip()] = {
+                    "name":    new_name.strip(),
+                    "address": new_address.strip(),
+                    "phone":   new_phone.strip(),
+                }
+                save_clients(clients)
+                st.success(f"✅ Client '{new_name.strip()}' saved.")
+                st.rerun()
+
+    # Client list
+    if clients:
+        st.divider()
+        st.write(f"**{len(clients)} client(s) saved**")
+        for name, info in sorted(clients.items()):
+            with st.container():
+                cc1, cc2, cc3, cc4 = st.columns([3, 3, 2, 1])
+                with cc1:
+                    st.write(f"**{name}**")
+                with cc2:
+                    st.write(info.get("address","—"))
+                with cc3:
+                    st.write(info.get("phone","—"))
+                with cc4:
+                    if st.button("🗑️", key=f"del_{name}", help=f"Delete {name}"):
+                        del clients[name]
+                        save_clients(clients)
+                        st.rerun()
+        st.divider()
+
+        # Export clients as CSV
+        client_rows = [{"Client": k, "Address": v.get("address",""),
+                        "Phone": v.get("phone","")} for k,v in clients.items()]
+        client_df = pd.DataFrame(client_rows)
+        st.download_button("⬇️ Export Client List (CSV)",
+                            data=client_df.to_csv(index=False),
+                            file_name="avm_clients.csv",
+                            mime="text/csv")
+    else:
+        st.info("No clients saved yet. Add your first client above.")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 3 — ORDER HISTORY
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_history:
+    st.subheader("Order History")
+    st.caption("Every report generated is automatically logged here.")
+
+    orders = load_orders()
+
+    if orders:
+        st.write(f"**{len(orders)} order(s) on record**")
+
+        # Search / filter
+        search = st.text_input("🔍 Search by address, client, or borrower",
+                                placeholder="Type to filter...", key="order_search")
+        if search:
+            q = search.lower()
+            orders = [o for o in orders if
+                      q in o.get("address","").lower() or
+                      q in o.get("client","").lower() or
+                      q in o.get("borrower","").lower()]
+
+        # Display as table
+        if orders:
+            df = pd.DataFrame(orders)
+            df = df.rename(columns={
+                "date":          "Report Date",
+                "address":       "Property Address",
+                "property_type": "Type",
+                "client":        "Client / Lender",
+                "borrower":      "Borrower",
+                "loan_number":   "Loan Number",
+                "avm_file_id":   "AVM File ID",
+            })
+            st.dataframe(df, use_container_width=True, hide_index=True)
+
+            st.divider()
+            st.download_button(
+                "⬇️ Export Order History (CSV)",
+                data=df.to_csv(index=False),
+                file_name="avm_order_history.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+        else:
+            st.info("No orders match your search.")
+    else:
+        st.info("No orders logged yet. Generate your first report to start the log.")
+
