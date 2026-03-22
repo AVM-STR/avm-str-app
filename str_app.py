@@ -659,6 +659,36 @@ def build_pdf(data, future_df, past_df, client, loan_num, report_date, commentar
     doc.build(story, onFirstPage=_hf, onLaterPages=_hf)
 
 
+# ── Email Helper ──────────────────────────────────────────────────────────────
+def send_report_email(to_email, subject, body, pdf_bytes, filename):
+    """Send PDF report via Gmail SMTP."""
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.application import MIMEApplication
+
+    try:
+        gmail_address = st.secrets["GMAIL_ADDRESS"]
+        gmail_password = st.secrets["GMAIL_APP_PASSWORD"]
+    except Exception:
+        gmail_address = os.environ.get("GMAIL_ADDRESS","")
+        gmail_password = os.environ.get("GMAIL_APP_PASSWORD","")
+
+    msg = MIMEMultipart()
+    msg["From"]    = gmail_address
+    msg["To"]      = to_email
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain"))
+
+    attachment = MIMEApplication(pdf_bytes, _subtype="pdf")
+    attachment.add_header("Content-Disposition", "attachment", filename=filename)
+    msg.attach(attachment)
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login(gmail_address, gmail_password)
+        server.send_message(msg)
+
+
 # ── Streamlit UI ──────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="AVM STR Report Generator",
@@ -925,6 +955,53 @@ with tab_generate:
                 mime="application/pdf",
                 use_container_width=True
             )
+
+            # Store PDF in session state for email sending
+            st.session_state["last_pdf_bytes"]  = buf.getvalue()
+            st.session_state["last_pdf_filename"] = filename
+            st.session_state["last_pdf_address"]  = f"{data.get('address_line1','')} {data.get('city_state_zip','')}"
+
+    # Email section — shows after report is generated
+    if "last_pdf_bytes" in st.session_state:
+        st.divider()
+        st.subheader("📧 Send Report via Email")
+        e1, e2 = st.columns([3, 1])
+        with e1:
+            email_to = st.text_input("Recipient email address",
+                                      placeholder="lender@example.com",
+                                      key="email_to")
+        with e2:
+            st.write("")
+            st.write("")
+            send_clicked = st.button("Send", use_container_width=True, key="send_email")
+
+        email_note = st.text_area("Optional note to include in email body",
+                                   placeholder="Please find the STR Income Analysis attached...",
+                                   height=80, key="email_note")
+
+        if send_clicked:
+            if not email_to.strip():
+                st.error("Please enter a recipient email address.")
+            else:
+                address_line = st.session_state.get("last_pdf_address","Subject Property")
+                subject = f"STR Income Analysis — {address_line}"
+                body = email_note.strip() if email_note.strip() else (
+                    f"Please find the Short-Term Rental Income Analysis attached for {address_line}.\n\n"
+                    f"This report was prepared by Absolute Value Management.\n\n"
+                    f"Please note: This is not an appraisal and does not constitute an opinion of market value."
+                )
+                try:
+                    with st.spinner("Sending email..."):
+                        send_report_email(
+                            to_email=email_to.strip(),
+                            subject=subject,
+                            body=body,
+                            pdf_bytes=st.session_state["last_pdf_bytes"],
+                            filename=st.session_state["last_pdf_filename"]
+                        )
+                    st.success(f"✅ Report sent to {email_to.strip()}")
+                except Exception as e:
+                    st.error(f"Email failed: {str(e)}")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 2 — CLIENT DATABASE
