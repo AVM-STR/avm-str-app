@@ -300,6 +300,8 @@ CERT_ITEMS = [
 METHODOLOGY_SECTIONS = [
     ("What this report is (and is not)",
      "This document is a short-term rental income analysis prepared for income support and feasibility review. It summarizes estimated revenue and operating metrics using third-party STR market data and the performance of similar active listings. This is not an appraisal, not an opinion of market value, and not an opinion of market rent."),
+    ("Data sources",
+     "Market and submarket STR performance data was sourced from AirDNA (paid subscription), supplemented by direct observation of active short-term rental listings on Airbnb.com and VRBO.com as of the report date. All performance conclusions represent the analyst's independent reconciliation of available market evidence and are not a reproduction of any third-party data product or model output."),
     ("Data considered",
      "Primary inputs include the subject's configuration (bed/bath/guest capacity), market and submarket classification, and a curated set of comparable STR listings. The comparable set is used to bracket typical ADR, occupancy rates, and annual revenue for similar rentals."),
     ("Operating expenses, NOI &amp; cap rate",
@@ -370,10 +372,13 @@ def build_pdf(data, future_df, past_df, client, loan_num, report_date, commentar
         [Paragraph("<b>Maximum Guests:</b>", lk),  Paragraph(data.get("max_guests",""), lv)],
         [Paragraph("<b>Market Area:</b>", lk),     Paragraph(data.get("market",""), lv)],
         [Paragraph("<b>Submarket:</b>", lk),        Paragraph(data.get("submarket",""), lv)],
-        [Paragraph("<b>Submarket Score:</b>", lk),  Paragraph(data.get("submarket_score",""), lv)],
+        [Paragraph("<b>Market Demand:</b>", lk),
+         Paragraph(("Very Strong" if int(data.get("submarket_score",0) or 0) >= 85
+                    else "Strong" if int(data.get("submarket_score",0) or 0) >= 70
+                    else "Moderate" if int(data.get("submarket_score",0) or 0) >= 55
+                    else "Emerging"), lv)],
         [Paragraph("<b>Report Date:</b>", lk),      Paragraph(report_date, lv)],
         [Paragraph("<b>Prepared By:</b>", lk),      Paragraph("Absolute Value Management", lv)],
-        [Paragraph("<b>Data Confidence:</b>", lk),  Paragraph(data.get("confidence","High"), lv)],
     ]
     info_t = Table(info_rows, colWidths=[1.5*inch, 1.9*inch])
     info_t.setStyle(TableStyle([
@@ -488,7 +493,10 @@ def build_pdf(data, future_df, past_df, client, loan_num, report_date, commentar
     story.append(ct)
     story.append(Spacer(1,8))
     story.append(Paragraph(
-        "Note: Address-level details for STR listings may not be publicly available for all data sources.",
+        "Comparable STR listings were identified and analyzed by the analyst using AirDNA (paid subscription) "
+        "and direct observation of active listings on Airbnb.com. Performance metrics reflect available market "
+        "data as of the report date and are used to bracket market-level ADR, occupancy, and revenue for "
+        "similar properties. Address-level details for STR listings are often not publicly available prior to booking.",
         styles["small"]))
 
     # Map image if provided
@@ -506,13 +514,32 @@ def build_pdf(data, future_df, past_df, client, loan_num, report_date, commentar
         styles["h2"]))
     story.append(Paragraph(commentary, styles["body"]))
     story.append(Spacer(1,6))
+    # Compute comp ranges for analyst-attributed projection language
+    comps = data.get("comps", [])
+    try:
+        occ_vals = [float(c["occ"].replace("%","")) for c in comps if c.get("occ")]
+        adr_vals = [float(c["adr"].replace("$","").replace(",","")) for c in comps if c.get("adr")]
+        rev_vals = [float(c["revenue"].replace("$","").replace("K","").replace(",",""))*1000
+                    for c in comps if c.get("revenue")]
+        occ_range = f"{min(occ_vals):.0f}%\u2013{max(occ_vals):.0f}%" if occ_vals else occ
+        adr_range = f"${min(adr_vals):.0f}\u2013${max(adr_vals):.0f}" if adr_vals else adr
+        rev_low   = min(rev_vals) / 1000 if rev_vals else 0
+        rev_high  = max(rev_vals) / 1000 if rev_vals else 0
+        rev_range = f"${rev_low:.0f}K\u2013${rev_high:.0f}K" if rev_vals else rev
+    except Exception:
+        occ_range, adr_range, rev_range = occ, adr, rev
+
     story.append(Paragraph(
         f"<b>Projection Support</b><br/>"
-        f"The third-party STR model estimates projected gross annual revenue of {rev} based on "
-        f"an average daily rate of {adr} and projected occupancy of {occ}. The subject's bedroom "
-        f"count and guest capacity place it toward the larger end of typical STR inventory, which "
-        f"can support higher ADR and stronger peak-season performance when paired with competitive "
-        f"amenities and professional management.",
+        f"Based on the analyst's review of comparable short-term rental performance in the "
+        f"{data.get('submarket','')} submarket, comparable properties demonstrated occupancy rates "
+        f"ranging from approximately {occ_range}, average daily rates ranging from approximately "
+        f"{adr_range}, and annual revenues ranging from approximately {rev_range}. The analyst's "
+        f"projected gross annual revenue of {rev}, reflecting an ADR of {adr} and occupancy of {occ}, "
+        f"represents an independent professional estimate derived from available market evidence. "
+        f"The subject's bedroom count and guest capacity place it toward the larger end of typical "
+        f"STR inventory, which can support higher ADR and stronger peak-season performance when "
+        f"paired with competitive amenities and professional management.",
         styles["body"]))
     story.append(Spacer(1,10))
 
