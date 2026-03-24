@@ -473,7 +473,7 @@ def generate_comp_narrative(data):
 
 
 def build_pdf(data, client, loan_num, report_date, commentary, buf,
-              photo_override=None, map_override=None, subject_map_path=None,
+              photo_override=None, map_override=None,
               client_address="", client_phone="", client_order_num="",
               borrower="", avm_file_id="", property_type="Single-Family Residence"):
     styles = make_styles()
@@ -624,16 +624,6 @@ def build_pdf(data, client, loan_num, report_date, commentary, buf,
         if para_text:
             story.append(Paragraph(para_text, styles["body"]))
             story.append(Spacer(1, 4))
-
-    # Subject location map if provided
-    if subject_map_path and os.path.exists(subject_map_path):
-        story.append(Spacer(1, 10))
-        story.append(Paragraph("Subject Property Location", styles["h2"]))
-        map_w = CONTENT_W * 0.72
-        map_h = 2.6 * inch
-        map_img = Image(subject_map_path, width=map_w, height=map_h)
-        map_img.hAlign = "CENTER"
-        story.append(map_img)
 
     # ── PAGE 3 ──────────────────────────────────────────────────────────────
     story.append(PageBreak())
@@ -982,14 +972,11 @@ with tab_generate:
     with col1:
         airdna_pdf = st.file_uploader("AirDNA Rentalizer PDF", type="pdf", key="pdf")
 
-    st.subheader("2. Property Photos & Map (Optional)")
+    st.subheader("2. Property Photo (Optional)")
     col_p1, col_p2 = st.columns(2)
     with col_p1:
         property_photo = st.file_uploader("Property Photo", type=["jpg","jpeg","png"], key="photo",
                                            help="Front exterior photo of the subject property")
-    with col_p2:
-        subject_map = st.file_uploader("Subject Location Map", type=["jpg","jpeg","png"], key="subj_map",
-                                        help="Screenshot of subject location from Google Maps or similar")
 
     # Assignment Info
     st.subheader("3. Assignment Info")
@@ -1081,18 +1068,10 @@ with tab_generate:
                     photo_override = tmp_photo.name
 
                 map_override = None
-                subject_map_path = None
-                if subject_map:
-                    tmp_smap = tempfile.NamedTemporaryFile(delete=False,
-                        suffix=os.path.splitext(subject_map.name)[1])
-                    tmp_smap.write(subject_map.read())
-                    tmp_smap.close()
-                    subject_map_path = tmp_smap.name
 
                 buf = io.BytesIO()
                 build_pdf(data, client, loan_num, report_date, commentary, buf,
                           photo_override=photo_override, map_override=map_override,
-                          subject_map_path=subject_map_path,
                           client_address=client_address, client_phone=client_phone,
                           client_order_num=client_order_num, borrower=borrower,
                           avm_file_id=avm_file_id, property_type=property_type)
