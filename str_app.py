@@ -77,12 +77,6 @@ def parse_airdna_pdf(pdf_bytes):
         if l == "Occupancy"  and i > 0 and "%" in lines[i-1]: data["occupancy"]          = lines[i-1]
         if l == "Average"    and i > 0 and "$" in lines[i-1]: data["adr"]                = lines[i-1]
 
-    # ── Confidence ──
-    for l in lines:
-        if l in ("High","Medium","Low"):
-            data["confidence"] = l
-            break
-
     # ── Submarket Score — appears after AIRDNA.CO footer ──
     for i, l in enumerate(lines):
         if l == "AIRDNA.CO" and i+2 < len(lines):
@@ -183,49 +177,98 @@ def parse_airdna_pdf(pdf_bytes):
 # ── Charts ────────────────────────────────────────────────────────────────────
 BRAND_BLUE = "#2E5FA3"
 
-def chart_monthly(df, out_path):
-    df["revenue"] = pd.to_numeric(df["revenue"], errors="coerce")
-    lows, highs = [], []
-    for val in df["range"]:
-        try:
-            parts = str(val).split(" - ")
-            lows.append(float(parts[0]))
-            highs.append(float(parts[1]))
-        except:
-            lows.append(float(df["revenue"].iloc[0]))
-            highs.append(float(df["revenue"].iloc[0]))
-    labels = [str(d)[:7] for d in df["date"]]
-    x = range(len(labels))
-    fig, ax = plt.subplots(figsize=(7.5, 2.8))
-    ax.fill_between(x, lows, highs, alpha=0.15, color=BRAND_BLUE)
-    ax.plot(x, df["revenue"], color=BRAND_BLUE, linewidth=2.2, marker="o", markersize=4)
-    ax.set_xticks(list(x))
-    ax.set_xticklabels(labels, fontsize=7.5)
-    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v,_: f"${v/1000:.0f}K"))
-    ax.tick_params(axis="y", labelsize=8)
-    ax.set_ylim(bottom=0)
-    ax.grid(axis="y", linestyle="--", alpha=0.4)
-    ax.spines[["top","right"]].set_visible(False)
-    fig.tight_layout(pad=0.4)
+def chart_revenue_range(comps, projected_rev, out_path):
+    """
+    Horizontal range chart showing min/Q1/median/Q3/max revenue across the
+    comp set, with the analyst's subject projection marked as a vertical line.
+    No individual comp is identifiable — aggregated statistics only.
+    """
+    import statistics
+    try:
+        rev_vals = sorted([
+            float(c["revenue"].replace("$","").replace("K","").replace(",","")) * 1000
+            for c in comps if c.get("revenue")
+        ])
+        proj = float(projected_rev.replace("$","").replace("K","").replace(",","")) * 1000
+    except Exception:
+        return
+
+    n = len(rev_vals)
+    if n < 2:
+        return
+
+    r_min    = rev_vals[0]
+    r_max    = rev_vals[-1]
+    r_median = statistics.median(rev_vals)
+    r_q1     = rev_vals[max(0, n//4)]
+    r_q3     = rev_vals[min(n-1, 3*n//4)]
+
+    fig, ax = plt.subplots(figsize=(7.5, 2.2))
+
+    # Full range bar
+    ax.barh(0, r_max - r_min, left=r_min, height=0.35,
+            color=BRAND_BLUE, alpha=0.15, label="Full Range")
+    # IQR bar
+    ax.barh(0, r_q3 - r_q1, left=r_q1, height=0.35,
+            color=BRAND_BLUE, alpha=0.45, label="Middle 50%")
+    # Median tick
+    ax.plot([r_median, r_median], [-0.22, 0.22], color=BRAND_BLUE,
+            linewidth=2.5, label=f"Median  ${r_median/1000:.0f}K")
+    # Subject projection
+    ax.plot([proj, proj], [-0.28, 0.28], color="#E84040",
+            linewidth=2.5, linestyle="--", label=f"Subject Projection  ${proj/1000:.0f}K")
+
+    ax.set_yticks([])
+    ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v,_: f"${v/1000:.0f}K"))
+    ax.tick_params(axis="x", labelsize=8)
+    ax.set_xlim(r_min * 0.88, r_max * 1.06)
+    ax.set_ylim(-0.5, 0.5)
+    ax.grid(axis="x", linestyle="--", alpha=0.4)
+    ax.spines[["top","right","left"]].set_visible(False)
+    ax.legend(fontsize=7.5, loc="upper left", framealpha=0.7)
+    fig.tight_layout(pad=0.5)
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close()
 
-def chart_annual(df, out_path):
-    df["revenue"] = pd.to_numeric(df["revenue"], errors="coerce")
-    labels = [str(d)[:7] for d in df["date"]]
-    x = range(len(labels))
+
+def chart_adr_vs_occ(comps, proj_adr, proj_occ, out_path):
+    """
+    Anonymous scatter plot of ADR vs. Occupancy across the comp set.
+    No individual comp is labeled — distribution only.
+    Subject projection marked distinctly.
+    """
+    try:
+        adr_vals = [float(c["adr"].replace("$","").replace(",",""))
+                    for c in comps if c.get("adr")]
+        occ_vals = [float(c["occ"].replace("%",""))
+                    for c in comps if c.get("occ")]
+        p_adr = float(proj_adr.replace("$","").replace(",",""))
+        p_occ = float(proj_occ.replace("%",""))
+    except Exception:
+        return
+
+    if len(adr_vals) < 2:
+        return
+
     fig, ax = plt.subplots(figsize=(7.5, 2.8))
-    ax.plot(x, df["revenue"], color=BRAND_BLUE, linewidth=2.2, marker="o", markersize=3)
-    ax.fill_between(x, df["revenue"], alpha=0.08, color=BRAND_BLUE)
-    step = max(1, len(labels)//12)
-    ax.set_xticks(list(x)[::step])
-    ax.set_xticklabels(labels[::step], fontsize=7.5)
-    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v,_: f"${v/1000:.0f}K"))
-    ax.tick_params(axis="y", labelsize=8)
-    ax.set_ylim(bottom=0)
-    ax.grid(axis="y", linestyle="--", alpha=0.4)
+
+    # Comp cloud — no labels
+    ax.scatter(occ_vals, adr_vals, color=BRAND_BLUE, alpha=0.55,
+               s=55, zorder=3, label="Comparable Properties")
+
+    # Subject projection
+    ax.scatter([p_occ], [p_adr], color="#E84040", s=90, zorder=5,
+               marker="*", label=f"Subject Projection")
+
+    ax.set_xlabel("Occupancy Rate (%)", fontsize=8)
+    ax.set_ylabel("Average Daily Rate ($)", fontsize=8)
+    ax.tick_params(labelsize=8)
+    ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v,_: f"{v:.0f}%"))
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v,_: f"${v:.0f}"))
+    ax.grid(linestyle="--", alpha=0.35)
     ax.spines[["top","right"]].set_visible(False)
-    fig.tight_layout(pad=0.4)
+    ax.legend(fontsize=7.5, framealpha=0.7)
+    fig.tight_layout(pad=0.5)
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close()
 
@@ -427,7 +470,7 @@ def generate_comp_narrative(data):
            "\n\n".join([para1, para2, para4])
 
 
-def build_pdf(data, future_df, past_df, client, loan_num, report_date, commentary, buf,
+def build_pdf(data, client, loan_num, report_date, commentary, buf,
               photo_override=None, map_override=None,
               client_address="", client_phone="", client_order_num="",
               borrower="", avm_file_id="", property_type="Single-Family Residence"):
@@ -644,7 +687,7 @@ def build_pdf(data, future_df, past_df, client, loan_num, report_date, commentar
 
     # ── PAGE 4 ──────────────────────────────────────────────────────────────
     story.append(PageBreak())
-    story.append(Paragraph("Amenities &amp; Revenue Seasonality", styles["h1"]))
+    story.append(Paragraph("Amenities &amp; Market Analysis", styles["h1"]))
     story.append(Paragraph("Comparable STR Amenity Prevalence", styles["h2"]))
 
     # Amenity table
@@ -674,21 +717,40 @@ def build_pdf(data, future_df, past_df, client, loan_num, report_date, commentar
     story.append(at)
     story.append(Spacer(1,14))
 
-    # Charts
-    if future_df is not None:
+    # Chart 1 — Revenue Range
+    comps     = data.get("comps", [])
+    proj_rev  = data.get("projected_revenue", "")
+    proj_adr  = data.get("adr", "")
+    proj_occ  = data.get("occupancy", "")
+
+    if comps and proj_rev:
         tmp1 = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
         tmp1.close()
-        chart_monthly(future_df.copy(), tmp1.name)
-        story.append(Paragraph("Projected Monthly Revenue (Next 12 Months)", styles["h2"]))
-        story.append(Image(tmp1.name, width=CONTENT_W, height=2.6*inch))
-        story.append(Spacer(1,12))
+        chart_revenue_range(comps, proj_rev, tmp1.name)
+        if os.path.exists(tmp1.name) and os.path.getsize(tmp1.name) > 0:
+            story.append(Paragraph("Comparable Revenue Range — Subject vs. Market", styles["h2"]))
+            story.append(Paragraph(
+                "The chart below illustrates the distribution of annual revenue across the comparable "
+                "set. The shaded bar represents the full range; the darker band reflects the middle 50% "
+                "of comparable performance. The subject's projected revenue is marked in red.",
+                styles["small"]))
+            story.append(Spacer(1, 4))
+            story.append(Image(tmp1.name, width=CONTENT_W, height=2.0*inch))
+            story.append(Spacer(1, 14))
 
-    if past_df is not None:
+    # Chart 2 — ADR vs Occupancy scatter
+    if comps and proj_adr and proj_occ:
         tmp2 = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
         tmp2.close()
-        chart_annual(past_df.copy(), tmp2.name)
-        story.append(Paragraph("Annual Projected Revenue Trend", styles["h2"]))
-        story.append(Image(tmp2.name, width=CONTENT_W, height=2.6*inch))
+        chart_adr_vs_occ(comps, proj_adr, proj_occ, tmp2.name)
+        if os.path.exists(tmp2.name) and os.path.getsize(tmp2.name) > 0:
+            story.append(Paragraph("ADR vs. Occupancy — Comparable Set Distribution", styles["h2"]))
+            story.append(Paragraph(
+                "Each point represents an anonymous comparable property. The red star marks the "
+                "subject's projected ADR and occupancy combination relative to the comp set cluster.",
+                styles["small"]))
+            story.append(Spacer(1, 4))
+            story.append(Image(tmp2.name, width=CONTENT_W, height=2.6*inch))
 
     # ── PAGE 5 ──────────────────────────────────────────────────────────────
     story.append(PageBreak())
@@ -903,14 +965,10 @@ tab_generate, tab_clients, tab_history = st.tabs([
 with tab_generate:
 
     # File Uploads
-    st.subheader("1. Upload AirDNA Files")
-    col1, col2, col3 = st.columns(3)
+    st.subheader("1. Upload AirDNA PDF")
+    col1, col2 = st.columns(2)
     with col1:
-        airdna_pdf = st.file_uploader("AirDNA PDF", type="pdf", key="pdf")
-    with col2:
-        future_csv = st.file_uploader("Future Monthly Revenue CSV", type="csv", key="future")
-    with col3:
-        past_csv = st.file_uploader("Past Annual Revenue CSV", type="csv", key="past")
+        airdna_pdf = st.file_uploader("AirDNA Rentalizer PDF", type="pdf", key="pdf")
 
     st.subheader("2. Property Photo (Optional)")
     col_p1, col_p2 = st.columns(2)
@@ -989,8 +1047,6 @@ with tab_generate:
     if st.button("⚡ Generate Report", type="primary", use_container_width=True):
         if not airdna_pdf:
             st.error("Please upload the AirDNA PDF.")
-        elif not future_csv or not past_csv:
-            st.error("Please upload both AirDNA CSV exports.")
         elif not client or not loan_num:
             st.error("Please enter the client/lender name and loan number.")
         elif not market_overview.strip():
@@ -1003,11 +1059,6 @@ with tab_generate:
             commentary = market_overview.strip()
 
             with st.spinner("Building report..."):
-                future_df = pd.read_csv(future_csv)
-                future_df.columns = [c.strip().lower().replace("\ufeff","") for c in future_df.columns]
-                past_df = pd.read_csv(past_csv)
-                past_df.columns = [c.strip().lower().replace("\ufeff","") for c in past_df.columns]
-
                 photo_override = None
                 if property_photo:
                     tmp_photo = tempfile.NamedTemporaryFile(delete=False,
@@ -1019,7 +1070,7 @@ with tab_generate:
                 map_override = None
 
                 buf = io.BytesIO()
-                build_pdf(data, future_df, past_df, client, loan_num, report_date, commentary, buf,
+                build_pdf(data, client, loan_num, report_date, commentary, buf,
                           photo_override=photo_override, map_override=map_override,
                           client_address=client_address, client_phone=client_phone,
                           client_order_num=client_order_num, borrower=borrower,
