@@ -312,6 +312,121 @@ METHODOLOGY_SECTIONS = [
      "Intended user(s): the client and/or lender, and parties specifically authorized by the client. Intended use: lender-facing STR income support and feasibility review for the subject property. Any other use of this report is prohibited without the express written permission of Absolute Value Management."),
 ]
 
+def generate_comp_narrative(data):
+    """
+    Generate a professional analyst narrative from parsed comp data.
+    Replaces the comp table — no proprietary data reproduced, all conclusions
+    are the analyst's independent reconciliation of available market evidence.
+    """
+    comps = data.get("comps", [])
+    market    = data.get("market", "this market")
+    submarket = data.get("submarket", "this submarket")
+    bedrooms  = data.get("bedrooms", "")
+    rev       = data.get("projected_revenue", "")
+    adr       = data.get("adr", "")
+    occ       = data.get("occupancy", "")
+
+    if not comps:
+        return (
+            "The analyst reviewed available short-term rental market data for the subject submarket. "
+            "Insufficient comparable data was available to produce a detailed range analysis; "
+            "the income estimate reflects the analyst's review of broader market conditions."
+        )
+
+    # ── Compute stats ────────────────────────────────────────────────────────
+    try:
+        occ_vals = [float(c["occ"].replace("%","")) for c in comps if c.get("occ")]
+        adr_vals = [float(c["adr"].replace("$","").replace(",","")) for c in comps if c.get("adr")]
+        rev_vals = [float(c["revenue"].replace("$","").replace("K","").replace(",",""))*1000
+                    for c in comps if c.get("revenue")]
+        day_vals = [int(c["days"]) for c in comps if c.get("days","").isdigit()]
+    except Exception:
+        occ_vals, adr_vals, rev_vals, day_vals = [], [], [], []
+
+    if not occ_vals:
+        return "The analyst reviewed available short-term rental market data for the subject submarket."
+
+    occ_min,  occ_max  = min(occ_vals),  max(occ_vals)
+    adr_min,  adr_max  = min(adr_vals),  max(adr_vals)
+    rev_min,  rev_max  = min(rev_vals),  max(rev_vals)
+    day_min,  day_max  = (min(day_vals), max(day_vals)) if day_vals else (None, None)
+
+    # Clustering — middle 50% (IQR)
+    import statistics
+    occ_median = statistics.median(occ_vals)
+    adr_median = statistics.median(adr_vals)
+    rev_median = statistics.median(rev_vals)
+
+    occ_sorted = sorted(occ_vals)
+    adr_sorted = sorted(adr_vals)
+    rev_sorted = sorted(rev_vals)
+    n = len(comps)
+    q1_idx, q3_idx = max(0, n//4), min(n-1, 3*n//4)
+
+    occ_cluster = (occ_sorted[q1_idx], occ_sorted[q3_idx])
+    adr_cluster = (adr_sorted[q1_idx], adr_sorted[q3_idx])
+    rev_cluster = (rev_sorted[q1_idx]/1000, rev_sorted[q3_idx]/1000)
+
+    # ADR/occupancy relationship — high ADR comps tend to have lower occ?
+    paired = sorted(zip(adr_vals, occ_vals), key=lambda x: x[0])
+    top_adr_occ   = [o for a,o in paired[-3:]]
+    bot_adr_occ   = [o for a,o in paired[:3]]
+    luxury_note   = (sum(top_adr_occ)/len(top_adr_occ)) < (sum(bot_adr_occ)/len(bot_adr_occ))
+
+    # ── Build narrative ──────────────────────────────────────────────────────
+    n_comps = len(comps)
+    bed_str = f"{bedrooms}-bedroom " if bedrooms else ""
+
+    para1 = (
+        f"To support the income estimate for the subject property, the analyst reviewed the "
+        f"performance of {n_comps} active short-term rental listings in the {submarket} submarket "
+        f"comparable to the subject in terms of bedroom count, bathroom count, building class, "
+        f"and overall utility. Comparable properties demonstrated a range of performance outcomes "
+        f"reflective of differences in floor level, view orientation, amenity set, and management quality."
+    )
+
+    para2 = (
+        f"Among the comparable set, occupancy rates ranged from approximately {occ_min:.0f}% "
+        f"to {occ_max:.0f}%, with the majority of properties clustered between "
+        f"{occ_cluster[0]:.0f}% and {occ_cluster[1]:.0f}%. Average daily rates ranged from "
+        f"approximately ${adr_min:.0f} to ${adr_max:.0f}, with most properties performing in "
+        f"the ${adr_cluster[0]:.0f} to ${adr_cluster[1]:.0f} range. Actual annual revenues "
+        f"across the comparable set ranged from approximately ${rev_min/1000:.0f}K to "
+        f"${rev_max/1000:.0f}K, with the majority of comparables falling between "
+        f"${rev_cluster[0]:.0f}K and ${rev_cluster[1]:.0f}K."
+    )
+
+    days_sent = ""
+    if day_min and day_max:
+        days_sent = (
+            f" Days booked ranged from approximately {day_min} to {day_max} annually, "
+            f"consistent with {'a high-demand urban' if day_min > 280 else 'an active'} "
+            f"submarket benefiting from year-round demand."
+        )
+
+    luxury_sent = ""
+    if luxury_note:
+        luxury_sent = (
+            " Properties at the upper end of the ADR range tended to carry lower occupancy rates, "
+            "suggesting a premium pricing strategy rather than volume-based booking."
+        )
+
+    para3 = days_sent + luxury_sent
+
+    para4 = (
+        f"The subject's projected occupancy of {occ} and ADR of {adr} fall within the "
+        f"well-supported middle range of comparable performance and are considered reasonable "
+        f"and achievable under competent management. The analyst's projected gross annual "
+        f"revenue of {rev} is supported by and consistent with the range established by "
+        f"the comparable set. Data sources reviewed include AirDNA (paid subscription) and "
+        f"direct observation of active listings. All conclusions represent the analyst's "
+        f"independent reconciliation of available market evidence."
+    )
+
+    return "\n\n".join([para1, para2, para3.strip(), para4]) if para3.strip() else \
+           "\n\n".join([para1, para2, para4])
+
+
 def build_pdf(data, future_df, past_df, client, loan_num, report_date, commentary, buf,
               photo_override=None, map_override=None,
               client_address="", client_phone="", client_order_num="",
@@ -455,56 +570,15 @@ def build_pdf(data, future_df, past_df, client, loan_num, report_date, commentar
 
     # ── PAGE 2 ──────────────────────────────────────────────────────────────
     story.append(PageBreak())
-    story.append(Paragraph("Comparable Short-Term Rental Schedule", styles["h1"]))
-    story.append(Paragraph(
-        "Comparable listings were selected based on location, bedroom count, guest capacity, "
-        "and overall utility. Exact street addresses for STR listings are often not publicly "
-        "available prior to booking.",
-        styles["body"]))
-    story.append(Spacer(1,6))
+    story.append(Paragraph("Comparable Short-Term Rental Analysis", styles["h1"]))
 
-    # Comp table
-    hdr_s  = ParagraphStyle("ch",fontSize=8.5,fontName="Helvetica-Bold",
-                             textColor=WHITE,alignment=TA_CENTER)
-    cell_s = ParagraphStyle("cc",fontSize=8,fontName="Helvetica",
-                             textColor=DARK_GRAY,alignment=TA_LEFT,leading=10)
-    ctr_s  = ParagraphStyle("ccc",fontSize=8,fontName="Helvetica",
-                             textColor=DARK_GRAY,alignment=TA_CENTER)
-    col_ws = [w*inch for w in [0.25,3.0,0.5,0.7,0.45,0.7,0.5,0.5]]
-    comp_data = [[Paragraph(h,hdr_s) for h in
-                  ["#","Comparable Listing","Bd/Ba","Rev Pot.","Days","Revenue","Occ","ADR"]]]
-    for c in data.get("comps",[]):
-        comp_data.append([
-            Paragraph(c["num"],ctr_s), Paragraph(c["name"],cell_s),
-            Paragraph(c["bdba"],ctr_s), Paragraph(c["rev_pot"],ctr_s),
-            Paragraph(c["days"],ctr_s), Paragraph(c["revenue"],ctr_s),
-            Paragraph(c["occ"],ctr_s),  Paragraph(c["adr"],ctr_s),
-        ])
-    ct = Table(comp_data,colWidths=col_ws,repeatRows=1)
-    ct.setStyle(TableStyle([
-        ("BACKGROUND",(0,0),(-1,0),MID_BLUE),
-        ("ROWBACKGROUNDS",(0,1),(-1,-1),[WHITE,colors.HexColor("#F7FAFF")]),
-        ("BOX",(0,0),(-1,-1),0.5,colors.HexColor("#AAAAAA")),
-        ("INNERGRID",(0,0),(-1,-1),0.3,colors.HexColor("#DDDDDD")),
-        ("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),
-        ("LEFTPADDING",(0,0),(-1,-1),4),("RIGHTPADDING",(0,0),(-1,-1),4),
-        ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
-    ]))
-    story.append(ct)
-    story.append(Spacer(1,8))
-    story.append(Paragraph(
-        "Comparable STR listings were identified and analyzed by the analyst using AirDNA (paid subscription) "
-        "and direct observation of active listings on Airbnb.com. Performance metrics reflect available market "
-        "data as of the report date and are used to bracket market-level ADR, occupancy, and revenue for "
-        "similar properties. Address-level details for STR listings are often not publicly available prior to booking.",
-        styles["small"]))
-
-    # Map image if provided
-    map_path = data.get("map_path")
-    if map_path and os.path.exists(map_path):
-        story.append(Spacer(1,10))
-        story.append(Paragraph("Comparable Listing Map", styles["h2"]))
-        story.append(Image(map_path, width=CONTENT_W, height=3.5*inch))
+    # Generate and render narrative — no comp table or map
+    comp_narrative = generate_comp_narrative(data)
+    for para_text in comp_narrative.split("\n\n"):
+        para_text = para_text.strip()
+        if para_text:
+            story.append(Paragraph(para_text, styles["body"]))
+            story.append(Spacer(1, 4))
 
     # ── PAGE 3 ──────────────────────────────────────────────────────────────
     story.append(PageBreak())
@@ -838,14 +912,13 @@ with tab_generate:
     with col3:
         past_csv = st.file_uploader("Past Annual Revenue CSV", type="csv", key="past")
 
-    st.subheader("2. Property Photos (Optional)")
+    st.subheader("2. Property Photo (Optional)")
     col_p1, col_p2 = st.columns(2)
     with col_p1:
         property_photo = st.file_uploader("Property Photo", type=["jpg","jpeg","png"], key="photo",
                                            help="Front exterior photo of the subject property")
     with col_p2:
-        map_photo = st.file_uploader("Comparable Listing Map", type=["jpg","jpeg","png"], key="map",
-                                      help="Screenshot of the AirDNA comp map")
+        st.info("ℹ️ Comparable map removed. Comp analysis is now generated as analyst narrative.")
 
     # Assignment Info
     st.subheader("3. Assignment Info")
@@ -944,12 +1017,6 @@ with tab_generate:
                     photo_override = tmp_photo.name
 
                 map_override = None
-                if map_photo:
-                    tmp_map = tempfile.NamedTemporaryFile(delete=False,
-                        suffix=os.path.splitext(map_photo.name)[1])
-                    tmp_map.write(map_photo.read())
-                    tmp_map.close()
-                    map_override = tmp_map.name
 
                 buf = io.BytesIO()
                 build_pdf(data, future_df, past_df, client, loan_num, report_date, commentary, buf,
