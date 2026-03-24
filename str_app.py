@@ -956,8 +956,8 @@ st.title("STR Income Analysis Generator")
 st.divider()
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_generate, tab_clients, tab_history = st.tabs([
-    "⚡ Generate Report", "👥 Client Database", "📋 Order History"
+tab_generate, tab_clients, tab_history, tab_total = st.tabs([
+    "⚡ Generate Report", "👥 Client Database", "📋 Order History", "📝 TOTAL Page 1 Helper"
 ])
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1262,3 +1262,329 @@ with tab_history:
     else:
         st.info("No orders logged yet. Generate your first report to start the log.")
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 4 — TOTAL PAGE 1 HELPER
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_total:
+    st.subheader("TOTAL Page 1 Helper")
+    st.caption("Fill in the fields below and generate formatted output ready to copy into TOTAL.")
+
+    form_type = st.radio("Form Type", ["1004 URAR", "1073 Condo", "1025 Multi-Family"],
+                          horizontal=True, key="form_type")
+    st.divider()
+
+    # ── SUBJECT ──────────────────────────────────────────────────────────────
+    with st.expander("📌 Subject", expanded=True):
+        tc1, tc2 = st.columns(2)
+        with tc1:
+            t_borrower     = st.text_input("Borrower", key="t_borrower")
+            t_address      = st.text_input("Property Address", key="t_address")
+            t_city         = st.text_input("City", key="t_city")
+            t_state        = st.text_input("State", key="t_state", value="RI")
+            t_zip          = st.text_input("Zip Code", key="t_zip")
+            t_county       = st.text_input("County", key="t_county")
+            t_legal        = st.text_input("Legal Description", key="t_legal")
+            t_parcel       = st.text_input("Assessor's Parcel #", key="t_parcel")
+        with tc2:
+            t_tax_year     = st.text_input("Tax Year", key="t_tax_year")
+            t_taxes        = st.text_input("R.E. Taxes $", key="t_taxes")
+            t_neighborhood = st.text_input("Neighborhood Name", key="t_neighborhood")
+            t_map_ref      = st.text_input("Map Reference", key="t_map_ref")
+            t_census       = st.text_input("Census Tract", key="t_census")
+            t_occupant     = st.selectbox("Occupant", ["Owner", "Tenant", "Vacant"], key="t_occupant")
+            t_special      = st.text_input("Special Assessments $", key="t_special", value="0")
+            t_prop_rights  = st.selectbox("Property Rights Appraised",
+                                           ["Fee Simple", "Leasehold", "Other"], key="t_prop_rights")
+        tc3, tc4 = st.columns(2)
+        with tc3:
+            t_assignment   = st.selectbox("Assignment Type",
+                                           ["Purchase Transaction", "Refinance Transaction", "Other"],
+                                           key="t_assignment")
+            t_lender       = st.text_input("Lender/Client", key="t_lender")
+            t_lender_addr  = st.text_input("Lender Address", key="t_lender_addr")
+        with tc4:
+            t_pud          = st.selectbox("PUD", ["No", "Yes"], key="t_pud")
+            t_hoa          = st.text_input("HOA $ (if applicable)", key="t_hoa")
+            t_hoa_freq     = st.selectbox("HOA Frequency", ["per year", "per month"], key="t_hoa_freq")
+            if form_type == "1073 Condo":
+                t_common   = st.text_input("Common Elements / Rec Facilities", key="t_common")
+            else:
+                t_common   = ""
+
+    # ── CONTRACT ─────────────────────────────────────────────────────────────
+    with st.expander("📄 Contract"):
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            t_contract_price = st.text_input("Contract Price $", key="t_contract_price")
+            t_contract_date  = st.text_input("Date of Contract", key="t_contract_date")
+            t_seller_owner   = st.selectbox("Is seller owner of public record?",
+                                             ["Yes", "No"], key="t_seller_owner")
+        with cc2:
+            t_fin_assist     = st.selectbox("Financial assistance (loan charges, concessions)?",
+                                             ["No", "Yes"], key="t_fin_assist")
+            t_fin_detail     = st.text_input("If Yes — type and amount", key="t_fin_detail")
+            t_prior_sale     = st.text_area("Analysis of prior sale / transfer history",
+                                             key="t_prior_sale", height=80)
+
+    # ── NEIGHBORHOOD ─────────────────────────────────────────────────────────
+    with st.expander("🏘️ Neighborhood"):
+        nc1, nc2, nc3 = st.columns(3)
+        with nc1:
+            t_location     = st.selectbox("Location", ["Urban", "Suburban", "Rural"], key="t_location")
+            t_builtup      = st.selectbox("Built-Up", ["Over 75%", "25-75%", "Under 25%"], key="t_builtup")
+            t_growth       = st.selectbox("Growth", ["Rapid", "Stable", "Slow"], key="t_growth")
+        with nc2:
+            t_prop_values  = st.selectbox("Property Values",
+                                           ["Increasing", "Stable", "Declining"], key="t_prop_values")
+            t_demand       = st.selectbox("Demand/Supply",
+                                           ["Shortage", "In Balance", "Over Supply"], key="t_demand")
+            t_mkt_time     = st.selectbox("Marketing Time",
+                                           ["Under 3 Months", "3-6 Months", "Over 6 Months"],
+                                           key="t_mkt_time")
+        with nc3:
+            t_price_low    = st.text_input("Price Range Low $", key="t_price_low")
+            t_price_high   = st.text_input("Price Range High $", key="t_price_high")
+            t_price_pred   = st.text_input("Predominant $", key="t_price_pred")
+            t_age_low      = st.text_input("Age Range Low (yrs)", key="t_age_low")
+            t_age_high     = st.text_input("Age Range High (yrs)", key="t_age_high")
+            t_age_pred     = st.text_input("Predominant Age (yrs)", key="t_age_pred")
+        t_nbhd_bounds  = st.text_area("Neighborhood Boundaries", key="t_nbhd_bounds", height=60)
+        t_nbhd_desc    = st.text_area("Neighborhood Description", key="t_nbhd_desc", height=80)
+        t_mkt_cond     = st.text_area("Market Conditions (support for above conclusions)",
+                                       key="t_mkt_cond", height=80)
+
+    # ── SITE ─────────────────────────────────────────────────────────────────
+    with st.expander("🌐 Site"):
+        sc1, sc2 = st.columns(2)
+        with sc1:
+            t_dimensions   = st.text_input("Dimensions", key="t_dimensions")
+            t_area         = st.text_input("Area (sq ft or acres)", key="t_area")
+            t_shape        = st.text_input("Shape", key="t_shape")
+            t_view         = st.text_input("View", key="t_view")
+            t_zoning_class = st.text_input("Specific Zoning Classification", key="t_zoning_class")
+            t_zoning_desc  = st.text_input("Zoning Description", key="t_zoning_desc")
+            t_zoning_comp  = st.selectbox("Zoning Compliance",
+                                           ["Legal Conforming", "Legal Non-Conforming",
+                                            "No Zoning", "Illegal"], key="t_zoning_comp")
+        with sc2:
+            t_hbu          = st.selectbox("H&BU as improved = present use?",
+                                           ["Yes", "No"], key="t_hbu")
+            t_utilities    = st.text_input("Utilities", key="t_utilities",
+                                            value="Elec: Public | Gas: Public | Water: Public | Sewer: Public")
+            t_offsite      = st.text_input("Off-site Improvements", key="t_offsite",
+                                            value="Street: Public | Curb/Gutter: Public | Sidewalk: Public | Alley: None")
+            t_fema_yn      = st.selectbox("FEMA Flood Hazard Area", ["No", "Yes"], key="t_fema_yn")
+            t_fema_map     = st.text_input("FEMA Map #", key="t_fema_map")
+            t_fema_date    = st.text_input("FEMA Map Date", key="t_fema_date")
+            t_site_notes   = st.text_area("Site Comments", key="t_site_notes", height=60)
+
+    # ── IMPROVEMENTS ─────────────────────────────────────────────────────────
+    with st.expander("🏠 Improvements"):
+        ic1, ic2 = st.columns(2)
+        with ic1:
+            t_units        = st.text_input("Units", key="t_units",
+                                            value="1" if form_type != "1025 Multi-Family" else "")
+            t_stories      = st.text_input("Stories", key="t_stories")
+            t_type         = st.selectbox("Type", ["Det.", "Att.", "S-Det.", "End Unit"], key="t_type")
+            t_design       = st.text_input("Design (Style)", key="t_design",
+                                            placeholder="Colonial, Ranch, Cape Cod, Hi-Rise, etc.")
+            t_yr_built     = st.text_input("Year Built", key="t_yr_built")
+            t_eff_age      = st.text_input("Effective Age (yrs)", key="t_eff_age")
+            t_foundation   = st.multiselect("Foundation",
+                                             ["Concrete Slab", "Crawl Space",
+                                              "Full Basement", "Partial Basement"],
+                                             key="t_foundation")
+            t_bsmt_area    = st.text_input("Basement Area (sq ft)", key="t_bsmt_area", value="0")
+            t_bsmt_finish  = st.text_input("Basement % Finished", key="t_bsmt_finish", value="0%")
+            t_bsmt_rooms   = st.text_input("Finished Basement Rooms", key="t_bsmt_rooms",
+                                            placeholder="e.g. Rec Room, Bath")
+        with ic2:
+            t_ext_walls    = st.text_input("Exterior Walls", key="t_ext_walls",
+                                            placeholder="Vinyl Siding, Brick, Stucco")
+            t_roof         = st.text_input("Roof Surface", key="t_roof",
+                                            placeholder="Asphalt Shingles, Flat/Membrane")
+            t_gutters      = st.text_input("Gutters & Downspouts", key="t_gutters", value="Aluminum")
+            t_windows      = st.text_input("Window Type", key="t_windows",
+                                            placeholder="Double Hung/Insulated")
+            t_heating      = st.text_input("Heating", key="t_heating",
+                                            placeholder="FWA/GAS, HWBB/OIL, Electric")
+            t_cooling      = st.text_input("Cooling", key="t_cooling",
+                                            placeholder="Central Air, None, Wall Units")
+            t_floors       = st.text_input("Floors", key="t_floors",
+                                            placeholder="HW/Carpet/Tile")
+            t_walls_int    = st.text_input("Walls (Interior)", key="t_walls_int",
+                                            placeholder="Drywall, Plaster")
+            t_trim         = st.text_input("Trim/Finish", key="t_trim",
+                                            placeholder="Wood/Painted")
+        ic3, ic4 = st.columns(2)
+        with ic3:
+            t_rooms_total  = st.text_input("Total Rooms Above Grade", key="t_rooms_total")
+            t_bedrooms     = st.text_input("Bedrooms", key="t_bedrooms")
+            t_baths        = st.text_input("Baths (Full/Half)", key="t_baths",
+                                            placeholder="2/1")
+            t_gla          = st.text_input("Gross Living Area (sq ft)", key="t_gla")
+        with ic4:
+            t_garage       = st.text_input("Car Storage", key="t_garage",
+                                            placeholder="2 Car Attached Garage / None")
+            t_appliances   = st.text_input("Appliances", key="t_appliances",
+                                            value="Refrigerator, Range/Oven, Dishwasher, Microwave")
+            t_add_features = st.text_area("Additional Features / Comments",
+                                           key="t_add_features", height=60)
+
+        if form_type == "1073 Condo":
+            st.markdown("**Project Information**")
+            pi1, pi2 = st.columns(2)
+            with pi1:
+                t_proj_name  = st.text_input("Project Name", key="t_proj_name")
+                t_proj_phase = st.text_input("Phase #", key="t_proj_phase")
+                t_proj_units = st.text_input("# Units in Project", key="t_proj_units")
+                t_proj_sold  = st.text_input("# Units Sold", key="t_proj_sold")
+            with pi2:
+                t_proj_rent  = st.text_input("# Units Rented", key="t_proj_rent")
+                t_proj_owner = st.text_input("# Units Owner Occupied", key="t_proj_owner")
+                t_proj_type  = st.selectbox("Project Type",
+                                             ["Garden", "Mid-Rise", "High-Rise",
+                                              "Townhouse", "2-4 Unit", "Other"],
+                                             key="t_proj_type")
+                t_floor_loc  = st.text_input("Floor Location of Unit", key="t_floor_loc")
+        else:
+            t_proj_name = t_proj_phase = t_proj_units = t_proj_sold = ""
+            t_proj_rent = t_proj_owner = t_proj_type = t_floor_loc = ""
+
+        if form_type == "1025 Multi-Family":
+            st.markdown("**Subject Rent Schedule**")
+            mf1, mf2, mf3, mf4 = st.columns(4)
+            with mf1:
+                t_unit_types = st.text_area("Unit Types", key="t_unit_types",
+                                             placeholder="1BR/1BA\n2BR/1BA\n3BR/2BA", height=100)
+            with mf2:
+                t_unit_count = st.text_area("# of Units", key="t_unit_count", height=100)
+            with mf3:
+                t_act_rent   = st.text_area("Actual Rent/Mo", key="t_act_rent", height=100)
+            with mf4:
+                t_mkt_rent   = st.text_area("Market Rent/Mo", key="t_mkt_rent", height=100)
+        else:
+            t_unit_types = t_unit_count = t_act_rent = t_mkt_rent = ""
+
+    # ── GENERATE ─────────────────────────────────────────────────────────────
+    st.divider()
+    if st.button("⚡ Generate TOTAL-Ready Output", use_container_width=True, key="gen_total"):
+        out = []
+        out.append(f"{'='*60}")
+        out.append(f"FORM: {form_type}")
+        out.append(f"{'='*60}")
+
+        out.append("\n── SUBJECT ──")
+        out.append(f"Borrower:                  {t_borrower}")
+        out.append(f"Property Address:          {t_address}")
+        out.append(f"City:                      {t_city}   State: {t_state}   Zip: {t_zip}")
+        out.append(f"County:                    {t_county}")
+        out.append(f"Legal Description:         {t_legal}")
+        out.append(f"Assessor's Parcel #:       {t_parcel}")
+        out.append(f"Tax Year:                  {t_tax_year}   R.E. Taxes: ${t_taxes}")
+        out.append(f"Neighborhood Name:         {t_neighborhood}")
+        out.append(f"Map Reference:             {t_map_ref}   Census Tract: {t_census}")
+        out.append(f"Occupant:                  {t_occupant}")
+        out.append(f"Special Assessments:       ${t_special}")
+        hoa_str = f"   HOA: ${t_hoa} {t_hoa_freq}" if t_pud == "Yes" and t_hoa else ""
+        out.append(f"PUD:                       {t_pud}{hoa_str}")
+        out.append(f"Property Rights:           {t_prop_rights}")
+        out.append(f"Assignment Type:           {t_assignment}")
+        out.append(f"Lender/Client:             {t_lender}")
+        out.append(f"Lender Address:            {t_lender_addr}")
+        if form_type == "1073 Condo" and t_common:
+            out.append(f"Common Elements/Rec:       {t_common}")
+
+        out.append("\n── CONTRACT ──")
+        out.append(f"Contract Price:            ${t_contract_price}")
+        out.append(f"Date of Contract:          {t_contract_date}")
+        out.append(f"Seller = Owner of Record:  {t_seller_owner}")
+        fin_str = f"  — {t_fin_detail}" if t_fin_assist == "Yes" and t_fin_detail else ""
+        out.append(f"Financial Assistance:      {t_fin_assist}{fin_str}")
+        if t_prior_sale.strip():
+            out.append(f"Prior Sale Analysis:\n{t_prior_sale}")
+
+        out.append("\n── NEIGHBORHOOD ──")
+        out.append(f"Location:                  {t_location}")
+        out.append(f"Built-Up:                  {t_builtup}")
+        out.append(f"Growth:                    {t_growth}")
+        out.append(f"Property Values:           {t_prop_values}")
+        out.append(f"Demand/Supply:             {t_demand}")
+        out.append(f"Marketing Time:            {t_mkt_time}")
+        out.append(f"Price Range:               ${t_price_low} to ${t_price_high}   Predominant: ${t_price_pred}")
+        out.append(f"Age Range:                 {t_age_low} to {t_age_high} yrs   Predominant: {t_age_pred} yrs")
+        if t_nbhd_bounds.strip():
+            out.append(f"Neighborhood Boundaries:\n{t_nbhd_bounds}")
+        if t_nbhd_desc.strip():
+            out.append(f"Neighborhood Description:\n{t_nbhd_desc}")
+        if t_mkt_cond.strip():
+            out.append(f"Market Conditions:\n{t_mkt_cond}")
+
+        out.append("\n── SITE ──")
+        out.append(f"Dimensions:                {t_dimensions}")
+        out.append(f"Area:                      {t_area}")
+        out.append(f"Shape:                     {t_shape}")
+        out.append(f"View:                      {t_view}")
+        out.append(f"Zoning Classification:     {t_zoning_class}")
+        out.append(f"Zoning Description:        {t_zoning_desc}")
+        out.append(f"Zoning Compliance:         {t_zoning_comp}")
+        out.append(f"H&BU as Improved = Present Use: {t_hbu}")
+        out.append(f"Utilities:                 {t_utilities}")
+        out.append(f"Off-Site Improvements:     {t_offsite}")
+        fema_str = f"   Map #: {t_fema_map}   Date: {t_fema_date}" if t_fema_map else ""
+        out.append(f"FEMA Flood Hazard:         {t_fema_yn}{fema_str}")
+        if t_site_notes.strip():
+            out.append(f"Site Comments:\n{t_site_notes}")
+
+        out.append("\n── IMPROVEMENTS ──")
+        out.append(f"Units: {t_units}   Stories: {t_stories}   Type: {t_type}   Design: {t_design}")
+        out.append(f"Year Built:                {t_yr_built}   Effective Age: {t_eff_age} yrs")
+        fnd = ", ".join(t_foundation) if t_foundation else "—"
+        out.append(f"Foundation:                {fnd}")
+        out.append(f"Basement:                  {t_bsmt_area} sq ft   % Finished: {t_bsmt_finish}   Rooms: {t_bsmt_rooms}")
+        out.append(f"Exterior Walls:            {t_ext_walls}")
+        out.append(f"Roof Surface:              {t_roof}")
+        out.append(f"Gutters/Downspouts:        {t_gutters}")
+        out.append(f"Window Type:               {t_windows}")
+        out.append(f"Heating:                   {t_heating}   Cooling: {t_cooling}")
+        out.append(f"Floors:                    {t_floors}   Walls: {t_walls_int}   Trim: {t_trim}")
+        out.append(f"Above Grade:               Rooms: {t_rooms_total}   Bedrooms: {t_bedrooms}   Baths: {t_baths}")
+        out.append(f"GLA:                       {t_gla} sq ft")
+        out.append(f"Car Storage:               {t_garage}")
+        out.append(f"Appliances:                {t_appliances}")
+        if t_add_features.strip():
+            out.append(f"Additional Features:\n{t_add_features}")
+
+        if form_type == "1073 Condo" and t_proj_name:
+            out.append("\n── PROJECT INFORMATION ──")
+            out.append(f"Project Name:              {t_proj_name}   Phase: {t_proj_phase}")
+            out.append(f"Units — Total: {t_proj_units}   Sold: {t_proj_sold}   "
+                       f"Rented: {t_proj_rent}   Owner Occ: {t_proj_owner}")
+            out.append(f"Project Type:              {t_proj_type}")
+            out.append(f"Floor Location:            {t_floor_loc}")
+
+        if form_type == "1025 Multi-Family" and t_unit_types.strip():
+            out.append("\n── SUBJECT RENT SCHEDULE ──")
+            types  = [l.strip() for l in t_unit_types.split("\n") if l.strip()]
+            counts = [l.strip() for l in t_unit_count.split("\n") if l.strip()]
+            acts   = [l.strip() for l in t_act_rent.split("\n") if l.strip()]
+            mkts   = [l.strip() for l in t_mkt_rent.split("\n") if l.strip()]
+            out.append(f"{'Unit Type':<16} {'# Units':<10} {'Actual Rent':<14} {'Market Rent'}")
+            out.append("-" * 56)
+            for i in range(max(len(types), len(counts), len(acts), len(mkts))):
+                row = (
+                    f"{types[i] if i < len(types) else '':<16} "
+                    f"{counts[i] if i < len(counts) else '':<10} "
+                    f"{acts[i] if i < len(acts) else '':<14} "
+                    f"{mkts[i] if i < len(mkts) else ''}"
+                )
+                out.append(row)
+
+        out.append(f"\n{'='*60}")
+        output_text = "\n".join(out)
+
+        st.text_area("📋 Copy into TOTAL — select all and paste",
+                     value=output_text, height=600, key="total_output")
+        st.success("✅ Output ready. Each section is labeled to match TOTAL field order.")
+        st.caption("Blank fields appear empty — fill those directly in TOTAL.")
