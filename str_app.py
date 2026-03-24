@@ -629,7 +629,11 @@ def build_pdf(data, client, loan_num, report_date, commentary, buf,
     if subject_map_path and os.path.exists(subject_map_path):
         story.append(Spacer(1, 10))
         story.append(Paragraph("Subject Property Location", styles["h2"]))
-        story.append(Image(subject_map_path, width=CONTENT_W, height=3.2*inch))
+        map_w = CONTENT_W * 0.72
+        map_h = 2.6 * inch
+        map_img = Image(subject_map_path, width=map_w, height=map_h)
+        map_img.hAlign = "CENTER"
+        story.append(map_img)
 
     # ── PAGE 3 ──────────────────────────────────────────────────────────────
     story.append(PageBreak())
