@@ -344,7 +344,7 @@ METHODOLOGY_SECTIONS = [
     ("What this report is (and is not)",
      "This document is a short-term rental income analysis prepared for income support and feasibility review. It summarizes estimated revenue and operating metrics using third-party STR market data and the performance of similar active listings. This is not an appraisal, not an opinion of market value, and not an opinion of market rent."),
     ("Data sources",
-     "Market and submarket STR performance data was sourced from AirDNA (paid subscription), supplemented by direct observation of active short-term rental listings on Airbnb.com and VRBO.com as of the report date. All performance conclusions represent the analyst's independent reconciliation of available market evidence and are not a reproduction of any third-party data product or model output."),
+     "Market data sources reviewed for this analysis include AirDNA (paid subscription) and publicly available listing data observed directly on Airbnb.com and VRBO.com as of the report date. All performance metrics and income conclusions cited in this report reflect the analyst's independent reconciliation of available market evidence and do not constitute a reproduction of any third-party data product or model output. AirDNA and other data sources are referenced solely as research tools used to inform the analyst's independent professional conclusions."),
     ("Data considered",
      "Primary inputs include the subject's configuration (bed/bath/guest capacity), market and submarket classification, and a curated set of comparable STR listings. The comparable set is used to bracket typical ADR, occupancy rates, and annual revenue for similar rentals."),
     ("Operating expenses, NOI &amp; cap rate",
@@ -461,9 +461,11 @@ def generate_comp_narrative(data):
         f"well-supported middle range of comparable performance and are considered reasonable "
         f"and achievable under competent management. The analyst's projected gross annual "
         f"revenue of {rev} is supported by and consistent with the range established by "
-        f"the comparable set. Data sources reviewed include AirDNA (paid subscription) and "
-        f"direct observation of active listings. All conclusions represent the analyst's "
-        f"independent reconciliation of available market evidence."
+        f"the comparable set. Market data sources reviewed for this analysis include AirDNA "
+        f"(paid subscription) and publicly available listing data observed directly on "
+        f"Airbnb.com and VRBO.com as of the report date. Performance metrics cited herein "
+        f"reflect the analyst's independent reconciliation of available market evidence and "
+        f"do not constitute a reproduction of any third-party data product or model output."
     )
 
     return "\n\n".join([para1, para2, para3.strip(), para4]) if para3.strip() else \
@@ -471,7 +473,7 @@ def generate_comp_narrative(data):
 
 
 def build_pdf(data, client, loan_num, report_date, commentary, buf,
-              photo_override=None, map_override=None,
+              photo_override=None, map_override=None, subject_map_path=None,
               client_address="", client_phone="", client_order_num="",
               borrower="", avm_file_id="", property_type="Single-Family Residence"):
     styles = make_styles()
@@ -622,6 +624,12 @@ def build_pdf(data, client, loan_num, report_date, commentary, buf,
         if para_text:
             story.append(Paragraph(para_text, styles["body"]))
             story.append(Spacer(1, 4))
+
+    # Subject location map if provided
+    if subject_map_path and os.path.exists(subject_map_path):
+        story.append(Spacer(1, 10))
+        story.append(Paragraph("Subject Property Location", styles["h2"]))
+        story.append(Image(subject_map_path, width=CONTENT_W, height=3.2*inch))
 
     # ── PAGE 3 ──────────────────────────────────────────────────────────────
     story.append(PageBreak())
@@ -970,13 +978,14 @@ with tab_generate:
     with col1:
         airdna_pdf = st.file_uploader("AirDNA Rentalizer PDF", type="pdf", key="pdf")
 
-    st.subheader("2. Property Photo (Optional)")
+    st.subheader("2. Property Photos & Map (Optional)")
     col_p1, col_p2 = st.columns(2)
     with col_p1:
         property_photo = st.file_uploader("Property Photo", type=["jpg","jpeg","png"], key="photo",
                                            help="Front exterior photo of the subject property")
     with col_p2:
-        st.info("ℹ️ Comparable map removed. Comp analysis is now generated as analyst narrative.")
+        subject_map = st.file_uploader("Subject Location Map", type=["jpg","jpeg","png"], key="subj_map",
+                                        help="Screenshot of subject location from Google Maps or similar")
 
     # Assignment Info
     st.subheader("3. Assignment Info")
@@ -1068,10 +1077,18 @@ with tab_generate:
                     photo_override = tmp_photo.name
 
                 map_override = None
+                subject_map_path = None
+                if subject_map:
+                    tmp_smap = tempfile.NamedTemporaryFile(delete=False,
+                        suffix=os.path.splitext(subject_map.name)[1])
+                    tmp_smap.write(subject_map.read())
+                    tmp_smap.close()
+                    subject_map_path = tmp_smap.name
 
                 buf = io.BytesIO()
                 build_pdf(data, client, loan_num, report_date, commentary, buf,
                           photo_override=photo_override, map_override=map_override,
+                          subject_map_path=subject_map_path,
                           client_address=client_address, client_phone=client_phone,
                           client_order_num=client_order_num, borrower=borrower,
                           avm_file_id=avm_file_id, property_type=property_type)
