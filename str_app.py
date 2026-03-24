@@ -772,8 +772,7 @@ def build_pdf(data, client, loan_num, report_date, commentary, buf,
         ["Configuration",       f"{data.get('bedrooms','')} Bedrooms | "
                                 f"{data.get('bathrooms','')} Bathrooms | "
                                 f"{data.get('max_guests','')} Guests Max"],
-        ["Market / Submarket",  f"{data.get('market','')} / {data.get('submarket','')} "
-                                f"(Score: {data.get('submarket_score','')})"],
+        ["Market / Submarket",  f"{data.get('market','')} / {data.get('submarket','')}"],
         ["Report Date",         report_date],
         ["Client / Lender",     client],
         ["Client Address",      data.get("client_address","")],
