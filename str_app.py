@@ -1270,6 +1270,13 @@ with tab_total:
     st.subheader("TOTAL Page 1 Helper")
     st.caption("Fill in the fields below and generate formatted output ready to copy into TOTAL.")
 
+    # Show banner if fields were just populated from AI Intake
+    if st.session_state.get("total_prefilled"):
+        st.success("✅ Fields pre-populated from AI Intake Assistant. Review, complete any blank fields, then generate.")
+        if st.button("Clear pre-fill banner", key="clear_prefill"):
+            st.session_state["total_prefilled"] = False
+            st.rerun()
+
     form_type = st.radio("Form Type", ["1004 URAR", "1073 Condo", "1025 Multi-Family"],
                           horizontal=True, key="form_type")
     st.divider()
@@ -2137,7 +2144,10 @@ IMPORTANT RULES:
                                 "other": "Other"
                             }
 
-                            # Write all text fields directly to session state
+                            # Store in a prefill dict — TOTAL tab reads this
+                            # before widgets render to set their initial values
+                            prefill = {}
+
                             text_fields = [
                                 "t_borrower","t_address","t_city","t_state","t_zip",
                                 "t_county","t_legal","t_parcel","t_tax_year","t_taxes",
@@ -2157,16 +2167,26 @@ IMPORTANT RULES:
                             for key in text_fields:
                                 val = total_data.get(key, "")
                                 if val:
-                                    st.session_state[key] = str(val)
+                                    prefill[key] = str(val)
 
                             # Handle t_assignment selectbox
                             raw_assign = str(total_data.get("t_assignment","")).lower()
                             for k, v in assignment_map.items():
                                 if k in raw_assign:
-                                    st.session_state["t_assignment"] = v
+                                    prefill["t_assignment"] = v
                                     break
 
-                            st.success("✅ Fields sent to TOTAL Page 1 Helper. Click that tab to review and generate.")
+                            # Write prefill to session state — delete existing
+                            # widget keys first so Streamlit accepts the new values
+                            for key, val in prefill.items():
+                                if key in st.session_state:
+                                    del st.session_state[key]
+                                st.session_state[key] = val
+
+                            # Flag that prefill has been applied
+                            st.session_state["total_prefilled"] = True
+                            st.success("✅ Fields sent — switching to TOTAL Page 1 Helper tab now.")
+                            st.rerun()
 
                         except json.JSONDecodeError as e:
                             st.warning(f"Could not parse TOTAL fields automatically ({e}). Use the text output above to copy manually.")
