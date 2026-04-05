@@ -1617,9 +1617,16 @@ with tab_intake:
             key="intake_tax_card"
         )
         mls_file = st.file_uploader(
-            "MLS Sheet / 360 Property View (PDF)",
+            "MLS Sheet / 360 Property View (PDF) — optional",
             type=["pdf"],
-            key="intake_mls"
+            key="intake_mls",
+            help="Not required for refinance assignments without an active listing."
+        )
+        anow_file = st.file_uploader(
+            "ANOW Order Screenshot (PNG/JPG) — optional",
+            type=["png", "jpg", "jpeg"],
+            key="intake_anow",
+            help="Screenshot from ANOW order management — used to pull borrower, lender, and order details."
         )
     with col_u2:
         maps_file = st.file_uploader(
@@ -1629,8 +1636,14 @@ with tab_intake:
         )
         gis_file = st.file_uploader(
             "GIS / Parcel Map Screenshot (PNG/JPG)",
-            type=["png", "jpg", "jpeg"],
-            key="intake_gis"
+            key="intake_gis",
+            type=["png", "jpg", "jpeg"]
+        )
+        bt_file = st.file_uploader(
+            "Banker & Tradesman (PDF or Image) — optional",
+            type=["pdf", "png", "jpg", "jpeg"],
+            key="intake_bt",
+            help="Banker & Tradesman deed/transfer report for sales history and ownership verification."
         )
     contract_file = st.file_uploader(
         "Purchase & Sales Agreement (PDF) — optional",
@@ -1753,7 +1766,7 @@ OUTPUT FORMAT — always produce all sections in this order:
 ---
 
 **ATTACHMENTS RECEIVED**
-[List what was uploaded]
+[List what was uploaded — tax card, Apple Maps, GIS, MLS sheet, ANOW screenshot, Banker & Tradesman, contract, CubiCasa — only list what was actually provided]
 
 ---
 
@@ -1797,6 +1810,79 @@ Cover: municipality/county location, immediate neighborhood character, access/ar
 
 **PRIORITY FLAGS / ITEMS TO RESOLVE**
 [Numbered list of the most important items to confirm before or at inspection]
+
+---
+
+After the full intake template, append a JSON block using EXACTLY this format (no markdown fences around the outer block, just the literal text TOTAL_JSON: followed by the JSON):
+
+TOTAL_JSON:
+{
+  "t_borrower": "",
+  "t_address": "",
+  "t_city": "",
+  "t_state": "",
+  "t_zip": "",
+  "t_county": "",
+  "t_legal": "",
+  "t_parcel": "",
+  "t_tax_year": "",
+  "t_taxes": "",
+  "t_neighborhood": "",
+  "t_lender": "",
+  "t_lender_addr": "",
+  "t_assignment": "",
+  "t_contract_price": "",
+  "t_contract_date": "",
+  "t_fin_detail": "",
+  "t_prior_sale": "",
+  "t_nbhd_bounds": "",
+  "t_nbhd_desc": "",
+  "t_dimensions": "",
+  "t_area": "",
+  "t_shape": "",
+  "t_view": "",
+  "t_zoning_class": "",
+  "t_zoning_desc": "",
+  "t_utilities": "",
+  "t_fema_map": "",
+  "t_fema_date": "",
+  "t_site_notes": "",
+  "t_stories": "",
+  "t_design": "",
+  "t_yr_built": "",
+  "t_bsmt_area": "",
+  "t_bsmt_finish": "",
+  "t_bsmt_rooms": "",
+  "t_ext_walls": "",
+  "t_roof": "",
+  "t_windows": "",
+  "t_heating": "",
+  "t_cooling": "",
+  "t_floors": "",
+  "t_walls_int": "",
+  "t_rooms_total": "",
+  "t_bedrooms": "",
+  "t_baths": "",
+  "t_gla": "",
+  "t_garage": "",
+  "t_add_features": ""
+}
+
+Rules for the JSON values:
+- t_assignment must be exactly one of: "Purchase Transaction", "Refinance Transaction", "Other"
+- t_state should be 2-letter abbreviation
+- t_taxes should be numeric only e.g. "6,021" with no $ sign
+- t_contract_price should be numeric only e.g. "508,000" with no $ sign
+- t_bsmt_area should be numeric only e.g. "864"
+- t_gla should be numeric only e.g. "1440"
+- t_bsmt_finish should be e.g. "50%" or "0%"
+- t_heating format: e.g. "HWBB/Oil", "FHA/Gas", "Heat Pump/Electric"
+- t_cooling format: e.g. "Central Air", "None", "Wall Units"
+- t_prior_sale: brief text summary of prior sales history for the report
+- t_nbhd_bounds: the full boundary sentence
+- t_nbhd_desc: the full 4-5 sentence neighborhood description
+- t_add_features: list any additional features, fireplace, deck, patio, shed etc.
+- Leave fields blank ("") if data is not available from the documents
 
 ---
 
@@ -1893,6 +1979,42 @@ IMPORTANT RULES:
             })
             content.append({"type": "text", "text": "[Above image: GIS / Parcel Map — use for land use grid percentages and site data]"})
 
+        if anow_file:
+            file_bytes = anow_file.read()
+            content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": get_img_media_type(anow_file.name),
+                    "data": img_to_base64(file_bytes)
+                }
+            })
+            content.append({"type": "text", "text": "[Above image: ANOW order screenshot — extract borrower, lender/client, AMC, order details, and any assignment notes]"})
+
+        if bt_file:
+            file_bytes = bt_file.read()
+            fname = bt_file.name.lower()
+            if fname.endswith(".pdf"):
+                content.append({
+                    "type": "document",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "application/pdf",
+                        "data": pdf_to_base64(file_bytes)
+                    },
+                    "title": "Banker & Tradesman — use for ownership history, deed transfers, book/page, and sales history"
+                })
+            else:
+                content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": get_img_media_type(bt_file.name),
+                        "data": img_to_base64(file_bytes)
+                    }
+                })
+                content.append({"type": "text", "text": "[Above image: Banker & Tradesman — use for ownership history, deed transfers, book/page, and sales history]"})
+
         if mls_file:
             file_bytes = mls_file.read()
             content.append({
@@ -1966,9 +2088,22 @@ IMPORTANT RULES:
                 )
                 response.raise_for_status()
                 result = response.json()
-                output_text = result["content"][0]["text"]
+                raw_output = result["content"][0]["text"]
 
-                # Display output
+                # Split intake text from JSON block
+                if "TOTAL_JSON:" in raw_output:
+                    parts = raw_output.split("TOTAL_JSON:", 1)
+                    output_text = parts[0].strip()
+                    json_str    = parts[1].strip()
+                else:
+                    output_text = raw_output
+                    json_str    = None
+
+                # Store in session state for Send to TOTAL button
+                st.session_state["intake_output_text"] = output_text
+                st.session_state["intake_json_str"]    = json_str
+
+                # Display intake output
                 st.success("✅ Intake generated successfully.")
                 st.markdown("---")
                 st.markdown(output_text)
@@ -1979,6 +2114,64 @@ IMPORTANT RULES:
                     height=600,
                     key="intake_output_raw"
                 )
+
+                # Send to TOTAL button
+                if json_str:
+                    st.divider()
+                    if st.button("📝 Send to TOTAL Page 1 Helper →",
+                                 use_container_width=True,
+                                 key="send_to_total"):
+                        try:
+                            # Clean and parse JSON
+                            clean_json = json_str.strip()
+                            if clean_json.startswith("```"):
+                                clean_json = re.sub(r"^```[a-z]*\n?", "", clean_json)
+                                clean_json = re.sub(r"\n?```$", "", clean_json)
+                            total_data = json.loads(clean_json)
+
+                            # Selectbox value maps
+                            assignment_map = {
+                                "purchase": "Purchase Transaction",
+                                "refinance": "Refinance Transaction",
+                                "refi": "Refinance Transaction",
+                                "other": "Other"
+                            }
+
+                            # Write all text fields directly to session state
+                            text_fields = [
+                                "t_borrower","t_address","t_city","t_state","t_zip",
+                                "t_county","t_legal","t_parcel","t_tax_year","t_taxes",
+                                "t_neighborhood","t_lender","t_lender_addr",
+                                "t_contract_price","t_contract_date","t_fin_detail",
+                                "t_prior_sale","t_nbhd_bounds","t_nbhd_desc",
+                                "t_dimensions","t_area","t_shape","t_view",
+                                "t_zoning_class","t_zoning_desc","t_utilities",
+                                "t_fema_map","t_fema_date","t_site_notes",
+                                "t_stories","t_design","t_yr_built",
+                                "t_bsmt_area","t_bsmt_finish","t_bsmt_rooms",
+                                "t_ext_walls","t_roof","t_windows",
+                                "t_heating","t_cooling","t_floors","t_walls_int",
+                                "t_rooms_total","t_bedrooms","t_baths","t_gla",
+                                "t_garage","t_add_features"
+                            ]
+                            for key in text_fields:
+                                val = total_data.get(key, "")
+                                if val:
+                                    st.session_state[key] = str(val)
+
+                            # Handle t_assignment selectbox
+                            raw_assign = str(total_data.get("t_assignment","")).lower()
+                            for k, v in assignment_map.items():
+                                if k in raw_assign:
+                                    st.session_state["t_assignment"] = v
+                                    break
+
+                            st.success("✅ Fields sent to TOTAL Page 1 Helper. Click that tab to review and generate.")
+
+                        except json.JSONDecodeError as e:
+                            st.warning(f"Could not parse TOTAL fields automatically ({e}). Use the text output above to copy manually.")
+                        except Exception as e:
+                            st.warning(f"Send to TOTAL encountered an issue: {e}")
 
                 # Follow-up question box
                 st.divider()
