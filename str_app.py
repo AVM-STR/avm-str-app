@@ -1930,13 +1930,48 @@ IMPORTANT RULES:
         def pdf_to_base64(file_bytes):
             return base64.standard_b64encode(file_bytes).decode("utf-8")
 
-        def img_to_base64(file_bytes):
-            return base64.standard_b64encode(file_bytes).decode("utf-8")
+        def img_to_base64_and_type(file_bytes, original_filename, max_bytes=4 * 1024 * 1024):
+            """Compress image if needed. Returns (base64_str, media_type)."""
+            from io import BytesIO
+            # If small enough and already JPEG, send as-is
+            ext = original_filename.lower().split(".")[-1]
+            if len(file_bytes) <= max_bytes and ext in ("jpg", "jpeg"):
+                return base64.standard_b64encode(file_bytes).decode("utf-8"), "image/jpeg"
+            # Convert to RGB JPEG and compress
+            img = PILImage.open(BytesIO(file_bytes)).convert("RGB")
+            # If small enough as PNG, still convert to JPEG for consistency
+            if len(file_bytes) <= max_bytes:
+                buf = BytesIO()
+                img.save(buf, format="JPEG", quality=90, optimize=True)
+                return base64.standard_b64encode(buf.getvalue()).decode("utf-8"), "image/jpeg"
+            # Need to compress — try reducing quality first
+            quality = 85
+            while quality >= 30:
+                buf = BytesIO()
+                img.save(buf, format="JPEG", quality=quality, optimize=True)
+                compressed = buf.getvalue()
+                if len(compressed) <= max_bytes:
+                    return base64.standard_b64encode(compressed).decode("utf-8"), "image/jpeg"
+                quality -= 10
+            # Last resort — resize to 50%
+            w, h = img.size
+            img = img.resize((w // 2, h // 2), PILImage.LANCZOS)
+            buf = BytesIO()
+            img.save(buf, format="JPEG", quality=70, optimize=True)
+            return base64.standard_b64encode(buf.getvalue()).decode("utf-8"), "image/jpeg"
 
-        def get_img_media_type(filename):
-            ext = filename.lower().split(".")[-1]
-            return {"jpg": "image/jpeg", "jpeg": "image/jpeg",
-                    "png": "image/png"}.get(ext, "image/jpeg")
+        def add_image_content(content, file_bytes, filename, label):
+            """Helper to add an image to content with compression and correct media type."""
+            b64, media_type = img_to_base64_and_type(file_bytes, filename)
+            content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": media_type,
+                    "data": b64
+                }
+            })
+            content.append({"type": "text", "text": label})
 
         if tax_card_file:
             file_bytes = tax_card_file.read()
@@ -1952,51 +1987,22 @@ IMPORTANT RULES:
                     "title": "Tax Card"
                 })
             else:
-                content.append({
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": get_img_media_type(tax_card_file.name),
-                        "data": img_to_base64(file_bytes)
-                    }
-                })
-                content.append({"type": "text", "text": "[Above image: Tax Card]"})
+                add_image_content(content, file_bytes, tax_card_file.name, "[Above image: Tax Card]")
 
         if maps_file:
             file_bytes = maps_file.read()
-            content.append({
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": get_img_media_type(maps_file.name),
-                    "data": img_to_base64(file_bytes)
-                }
-            })
-            content.append({"type": "text", "text": "[Above image: Apple Maps screenshot — use circled/boxed landmarks for N/S/E/W neighborhood boundaries]"})
+            add_image_content(content, file_bytes, maps_file.name,
+                "[Above image: Apple Maps screenshot — use circled/boxed landmarks for N/S/E/W neighborhood boundaries]")
 
         if gis_file:
             file_bytes = gis_file.read()
-            content.append({
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": get_img_media_type(gis_file.name),
-                    "data": img_to_base64(file_bytes)
-                }
-            })
-            content.append({"type": "text", "text": "[Above image: GIS / Parcel Map — use for land use grid percentages and site data]"})
+            add_image_content(content, file_bytes, gis_file.name,
+                "[Above image: GIS / Parcel Map — use for land use grid percentages and site data]")
 
         if anow_file:
             file_bytes = anow_file.read()
-            content.append({
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": get_img_media_type(anow_file.name),
-                    "data": img_to_base64(file_bytes)
-                }
-            })
-            content.append({"type": "text", "text": "[Above image: ANOW order screenshot — extract borrower, lender/client, AMC, order details, and any assignment notes]"})
+            add_image_content(content, file_bytes, anow_file.name,
+                "[Above image: ANOW order screenshot — extract borrower, lender/client, AMC, order details, and any assignment notes]")
 
         if bt_file:
             file_bytes = bt_file.read()
@@ -2012,15 +2018,8 @@ IMPORTANT RULES:
                     "title": "Banker & Tradesman — use for ownership history, deed transfers, book/page, and sales history"
                 })
             else:
-                content.append({
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": get_img_media_type(bt_file.name),
-                        "data": img_to_base64(file_bytes)
-                    }
-                })
-                content.append({"type": "text", "text": "[Above image: Banker & Tradesman — use for ownership history, deed transfers, book/page, and sales history]"})
+                add_image_content(content, file_bytes, bt_file.name,
+                    "[Above image: Banker & Tradesman — use for ownership history, deed transfers, book/page, and sales history]")
 
         if mls_file:
             file_bytes = mls_file.read()
