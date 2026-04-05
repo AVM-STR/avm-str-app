@@ -956,8 +956,8 @@ st.title("STR Income Analysis Generator")
 st.divider()
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_generate, tab_clients, tab_history, tab_total = st.tabs([
-    "⚡ Generate Report", "👥 Client Database", "📋 Order History", "📝 TOTAL Page 1 Helper"
+tab_generate, tab_clients, tab_history, tab_total, tab_intake = st.tabs([
+    "⚡ Generate Report", "👥 Client Database", "📋 Order History", "📝 TOTAL Page 1 Helper", "🏠 AI Intake Assistant"
 ])
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1588,3 +1588,433 @@ with tab_total:
                      value=output_text, height=600, key="total_output")
         st.success("✅ Output ready. Each section is labeled to match TOTAL field order.")
         st.caption("Blank fields appear empty — fill those directly in TOTAL.")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 5 — AI INTAKE ASSISTANT
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_intake:
+
+    st.subheader("🏠 AI Intake Assistant")
+    st.caption(
+        "Upload your tax card, Apple Maps screenshot, GIS screenshot, MLS sheet, "
+        "or contract — add any notes — and Claude will generate a fully populated "
+        "intake template ready to copy into TOTAL."
+    )
+
+    # ── API Key (from Streamlit secrets or environment variable) ─────────────
+    try:
+        intake_api_key = st.secrets["ANTHROPIC_API_KEY"]
+    except Exception:
+        intake_api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+
+    # ── File Uploads ──────────────────────────────────────────────────────────
+    st.markdown("#### 1. Upload Documents")
+    col_u1, col_u2 = st.columns(2)
+    with col_u1:
+        tax_card_file = st.file_uploader(
+            "Tax Card (PDF or Image)",
+            type=["pdf", "png", "jpg", "jpeg"],
+            key="intake_tax_card"
+        )
+        mls_file = st.file_uploader(
+            "MLS Sheet / 360 Property View (PDF)",
+            type=["pdf"],
+            key="intake_mls"
+        )
+    with col_u2:
+        maps_file = st.file_uploader(
+            "Apple Maps Screenshot (PNG/JPG)",
+            type=["png", "jpg", "jpeg"],
+            key="intake_maps"
+        )
+        gis_file = st.file_uploader(
+            "GIS / Parcel Map Screenshot (PNG/JPG)",
+            type=["png", "jpg", "jpeg"],
+            key="intake_gis"
+        )
+    contract_file = st.file_uploader(
+        "Purchase & Sales Agreement (PDF) — optional",
+        type=["pdf"],
+        key="intake_contract"
+    )
+    cubicasa_file = st.file_uploader(
+        "CubiCasa GLA Report (PDF) — optional",
+        type=["pdf"],
+        key="intake_cubicasa"
+    )
+
+    # ── Manual Notes ──────────────────────────────────────────────────────────
+    st.markdown("#### 2. Assignment Notes")
+    col_n1, col_n2, col_n3 = st.columns(3)
+    with col_n1:
+        intake_borrower    = st.text_input("Borrower", key="intake_borrower")
+        intake_lender      = st.text_input("Lender / AMC", key="intake_lender")
+    with col_n2:
+        intake_form        = st.selectbox("Form Type",
+                                          ["1004", "1073 Condo", "1025 Multi-Family",
+                                           "1004C Manufactured", "Other"],
+                                          key="intake_form")
+        intake_use         = st.selectbox("Intended Use",
+                                          ["Purchase", "Refinance", "Estate",
+                                           "Divorce", "Other"],
+                                          key="intake_use")
+    with col_n3:
+        intake_due         = st.text_input("Due Date", key="intake_due")
+        intake_contract_px = st.text_input("Contract Price", key="intake_contract_px",
+                                            placeholder="$000,000")
+
+    intake_notes = st.text_area(
+        "Additional Notes (inspection findings, borrower notes, flags, etc.)",
+        key="intake_notes",
+        height=80,
+        placeholder="e.g. Owner confirms well and septic. TQS ceiling height under 7ft in places. Borrower same as owner LLC."
+    )
+
+    # ── System Prompt ─────────────────────────────────────────────────────────
+    INTAKE_SYSTEM_PROMPT = """You are an expert certified residential appraiser assistant working for A-Tech Appraisal Co., LLC in Rhode Island and Massachusetts. You help appraisers prepare USPAP-compliant appraisal report data by analyzing uploaded documents including tax cards, MLS sheets, GIS screenshots, Apple Maps screenshots, purchase contracts, and CubiCasa GLA reports.
+
+Your output must follow this exact intake template structure. All narrative language must be factual and objective — avoid subjective or non-USPAP-compliant terms such as "convenient," "desirable," "charming," "ideal," or "easy."
+
+OUTPUT FORMAT — always produce all sections in this order:
+
+## 🏠 APPRAISAL ASSIGNMENT INTAKE
+
+**Property Address:**
+**City/Town, State, Zip:**
+**County:**
+**Form Type:**
+**Intended Use:**
+**Lender/AMC:**
+**Due Date:**
+
+---
+
+**OWNERSHIP & TRANSACTION**
+- Current Owner:
+- Co-Owner:
+- Borrower:
+- Book & Page:
+- Last Sale Price:
+- Last Sale Date:
+- Contract Price:
+- Seller Concession (if any):
+- Tax Year:
+- Tax Amount:
+
+---
+
+**PROPERTY BASICS**
+- Style:
+- Year Built:
+- GLA (above grade): [note source — ANSI CubiCasa field measurement preferred over assessor]
+- Basement: [type, size, finish %, access]
+- Bedrooms/Baths:
+- Garage: [attached/detached, # cars, sf]
+- Lot Size:
+- Public Water: Y/N
+- Public Sewer: Y/N
+- Legal Description / Zoning:
+- Flood Zone: [FEMA zone, panel #, date if available]
+
+---
+
+**GLA SUB-AREA BREAKDOWN** [if CubiCasa or Vision sketch available]
+| Level | Description | SF |
+|---|---|---|
+
+---
+
+**OWNERSHIP & SALES HISTORY**
+| Owner | Price | Date | Notes |
+|---|---|---|---|
+
+[Flag any same-day transfers, flip history, non-arm's-length transfers, or sales within 36 months]
+
+---
+
+**COMPLEXITY FLAGS**
+[List all flags with [x] prefix. Common flags to check:
+- Non-ANSI space (TQS, FRB, below-grade finished space)
+- GLA variance between sources
+- Recent flip or same-day transfer
+- LLC ownership with individual borrower
+- Seller concession
+- Recent arm's length sale within 12 months
+- Historic construction (pre-1940)
+- No garage
+- Oil heat / no AC
+- Unknown underground tank
+- Thin comp market
+- Coastal / flood zone
+- Condo vs PUD classification
+- Permit history flags
+- Water/sewer confirmation needed]
+
+---
+
+**ATTACHMENTS RECEIVED**
+[List what was uploaded]
+
+---
+
+**NEIGHBORHOOD BOUNDARIES**
+One sentence: "The subject neighborhood is bounded to the north by [X], to the south by [X], to the east by [X], and to the west by [X]."
+[Derive from Apple Maps screenshot — use roads, landmarks, natural features visible in the image]
+
+---
+
+**NEIGHBORHOOD DESCRIPTION**
+[4-5 sentences. Factual, objective, USPAP-compliant. No subjective language.
+Cover: municipality/county location, immediate neighborhood character, access/arterials (no "convenient"), utilities, and Other land use description (parks, open space, golf, conservation, etc.)]
+
+---
+
+**LAND USE GRID**
+| Use | % |
+|---|---|
+| Single Family | _% |
+| 2–4 Unit | _% |
+| Multi-Family (5+) | _% |
+| Commercial | _% |
+| Other (describe) | _% |
+[Derive from GIS screenshot if available. Note if estimated.]
+
+---
+
+**SITE SECTION**
+[2-3 sentences. Cover: lot size, zoning, lot description/shape, utilities, flood zone, any adverse conditions.]
+
+---
+
+**IMPROVEMENT DESCRIPTION**
+[Begin: "The appraiser has inspected the interior and exterior of the subject property and researched municipal records for data reported herein."]
+[Cover: style, year built, GLA with source, room count, bed/bath, exterior, roof, foundation, basement, heat/cool, garage, additional features, condition note at end.]
+[If CubiCasa report provided, use ANSI GLA and note any variance from assessor.]
+[If finished below-grade space exists, note it is excluded from above-grade GLA per ANSI and reported separately.]
+[End: "Condition and quality ratings to be determined at inspection." unless inspection has occurred — in that case use provided condition notes.]
+
+---
+
+**PRIORITY FLAGS / ITEMS TO RESOLVE**
+[Numbered list of the most important items to confirm before or at inspection]
+
+---
+
+IMPORTANT RULES:
+1. Never use "convenient," "desirable," "charming," "ideal," or "easy" in narrative
+2. Always note the source of GLA (ANSI CubiCasa vs. assessor vs. MLS)
+3. Flag any GLA variance between sources
+4. Finished below-grade space is NEVER included in above-grade GLA per ANSI Z765
+5. TQS (Three Quarter Story) space must be verified for ANSI ceiling height compliance at inspection
+6. If a property is owned by an LLC with an individual borrower, always flag it
+7. Seller concessions must always be flagged and noted
+8. Any transfer within 36 months of the effective date must be analyzed in prior sales history
+9. Same-day double transfers are always a flag
+10. Permit history from Vision assessor cards should be noted but not over-emphasized
+11. Land use grid percentages should reflect the immediate neighborhood, not the whole town
+12. Always note when water/sewer needs to be confirmed at inspection"""
+
+    # ── Generate Button ───────────────────────────────────────────────────────
+    st.divider()
+    generate_btn = st.button(
+        "🏠 Generate Intake",
+        use_container_width=True,
+        key="intake_generate",
+        type="primary"
+    )
+
+    if generate_btn:
+        if not intake_api_key:
+            st.error("Anthropic API key not found. Add ANTHROPIC_API_KEY to your Streamlit secrets.")
+            st.stop()
+
+        # Build message content
+        content = []
+
+        # Add uploaded files as base64
+        import base64
+
+        def pdf_to_base64(file_bytes):
+            return base64.standard_b64encode(file_bytes).decode("utf-8")
+
+        def img_to_base64(file_bytes):
+            return base64.standard_b64encode(file_bytes).decode("utf-8")
+
+        def get_img_media_type(filename):
+            ext = filename.lower().split(".")[-1]
+            return {"jpg": "image/jpeg", "jpeg": "image/jpeg",
+                    "png": "image/png"}.get(ext, "image/jpeg")
+
+        if tax_card_file:
+            file_bytes = tax_card_file.read()
+            fname = tax_card_file.name.lower()
+            if fname.endswith(".pdf"):
+                content.append({
+                    "type": "document",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "application/pdf",
+                        "data": pdf_to_base64(file_bytes)
+                    },
+                    "title": "Tax Card"
+                })
+            else:
+                content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": get_img_media_type(tax_card_file.name),
+                        "data": img_to_base64(file_bytes)
+                    }
+                })
+                content.append({"type": "text", "text": "[Above image: Tax Card]"})
+
+        if maps_file:
+            file_bytes = maps_file.read()
+            content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": get_img_media_type(maps_file.name),
+                    "data": img_to_base64(file_bytes)
+                }
+            })
+            content.append({"type": "text", "text": "[Above image: Apple Maps screenshot — use circled/boxed landmarks for N/S/E/W neighborhood boundaries]"})
+
+        if gis_file:
+            file_bytes = gis_file.read()
+            content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": get_img_media_type(gis_file.name),
+                    "data": img_to_base64(file_bytes)
+                }
+            })
+            content.append({"type": "text", "text": "[Above image: GIS / Parcel Map — use for land use grid percentages and site data]"})
+
+        if mls_file:
+            file_bytes = mls_file.read()
+            content.append({
+                "type": "document",
+                "source": {
+                    "type": "base64",
+                    "media_type": "application/pdf",
+                    "data": pdf_to_base64(file_bytes)
+                },
+                "title": "MLS Sheet"
+            })
+
+        if contract_file:
+            file_bytes = contract_file.read()
+            content.append({
+                "type": "document",
+                "source": {
+                    "type": "base64",
+                    "media_type": "application/pdf",
+                    "data": pdf_to_base64(file_bytes)
+                },
+                "title": "Purchase and Sales Agreement"
+            })
+
+        if cubicasa_file:
+            file_bytes = cubicasa_file.read()
+            content.append({
+                "type": "document",
+                "source": {
+                    "type": "base64",
+                    "media_type": "application/pdf",
+                    "data": pdf_to_base64(file_bytes)
+                },
+                "title": "CubiCasa GLA Report — ANSI compliant field measurements. Use these GLA figures. Note any variance from assessor or MLS."
+            })
+
+        # Build text prompt
+        prompt_parts = ["Please generate the full appraisal intake template based on the uploaded documents."]
+        if intake_borrower:    prompt_parts.append(f"Borrower: {intake_borrower}")
+        if intake_lender:      prompt_parts.append(f"Lender/AMC: {intake_lender}")
+        if intake_form:        prompt_parts.append(f"Form Type: {intake_form}")
+        if intake_use:         prompt_parts.append(f"Intended Use: {intake_use}")
+        if intake_due:         prompt_parts.append(f"Due Date: {intake_due}")
+        if intake_contract_px: prompt_parts.append(f"Contract Price: {intake_contract_px}")
+        if intake_notes:       prompt_parts.append(f"Additional Notes: {intake_notes}")
+
+        content.append({"type": "text", "text": "\n".join(prompt_parts)})
+
+        # Call API
+        with st.spinner("Claude is analyzing your documents and generating the intake..."):
+            try:
+                headers = {
+                    "x-api-key": intake_api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                    "anthropic-beta": "pdfs-2024-09-25"
+                }
+                payload = {
+                    "model": "claude-opus-4-5",
+                    "max_tokens": 4000,
+                    "system": INTAKE_SYSTEM_PROMPT,
+                    "messages": [
+                        {"role": "user", "content": content}
+                    ]
+                }
+                response = requests.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers=headers,
+                    json=payload,
+                    timeout=120
+                )
+                response.raise_for_status()
+                result = response.json()
+                output_text = result["content"][0]["text"]
+
+                # Display output
+                st.success("✅ Intake generated successfully.")
+                st.markdown("---")
+                st.markdown(output_text)
+                st.divider()
+                st.text_area(
+                    "📋 Plain text copy — select all and copy",
+                    value=output_text,
+                    height=600,
+                    key="intake_output_raw"
+                )
+
+                # Follow-up question box
+                st.divider()
+                st.markdown("#### 💬 Follow-up Question")
+                followup = st.text_input(
+                    "Ask a follow-up about this property (e.g. 'draft the improvement description', 'what comps strategy would you suggest')",
+                    key="intake_followup"
+                )
+                if st.button("Send Follow-up", key="intake_followup_btn"):
+                    if followup.strip():
+                        with st.spinner("Thinking..."):
+                            fu_payload = {
+                                "model": "claude-opus-4-5",
+                                "max_tokens": 2000,
+                                "system": INTAKE_SYSTEM_PROMPT,
+                                "messages": [
+                                    {"role": "user", "content": content},
+                                    {"role": "assistant", "content": output_text},
+                                    {"role": "user", "content": followup}
+                                ]
+                            }
+                            fu_response = requests.post(
+                                "https://api.anthropic.com/v1/messages",
+                                headers=headers,
+                                json=fu_payload,
+                                timeout=120
+                            )
+                            fu_response.raise_for_status()
+                            fu_result = fu_response.json()
+                            fu_text = fu_result["content"][0]["text"]
+                            st.markdown(fu_text)
+                            st.text_area("📋 Copy follow-up response",
+                                         value=fu_text, height=300,
+                                         key="intake_fu_output")
+
+            except requests.exceptions.HTTPError as e:
+                st.error(f"API error: {e.response.status_code} — {e.response.text}")
+            except Exception as e:
+                st.error(f"Error: {str(e)}")
