@@ -824,6 +824,342 @@ def build_pdf(data, client, loan_num, report_date, commentary, buf,
 
 
 # ── Email Helper ──────────────────────────────────────────────────────────────
+# ── Intake Export Helpers ─────────────────────────────────────────────────────
+
+def build_intake_pdf(intake_text, address="Subject Property"):
+    """Convert intake markdown text to a branded PDF using ReportLab."""
+    from io import BytesIO
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=letter,
+        leftMargin=0.75*inch, rightMargin=0.75*inch,
+        topMargin=0.9*inch, bottomMargin=0.75*inch
+    )
+
+    styles = {
+        "title": ParagraphStyle("title", fontName="Helvetica-Bold", fontSize=14,
+                                 textColor=colors.HexColor("#1F3864"),
+                                 spaceAfter=6, spaceBefore=0),
+        "h2":    ParagraphStyle("h2", fontName="Helvetica-Bold", fontSize=11,
+                                 textColor=colors.HexColor("#2E5FA3"),
+                                 spaceAfter=4, spaceBefore=10),
+        "body":  ParagraphStyle("body", fontName="Helvetica", fontSize=9,
+                                 textColor=colors.HexColor("#333333"),
+                                 spaceAfter=3, leading=13),
+        "flag":  ParagraphStyle("flag", fontName="Helvetica", fontSize=9,
+                                 textColor=colors.HexColor("#C00000"),
+                                 spaceAfter=2, leading=12),
+        "bold":  ParagraphStyle("bold", fontName="Helvetica-Bold", fontSize=9,
+                                 textColor=colors.HexColor("#333333"),
+                                 spaceAfter=2),
+    }
+
+    def _hf(canvas, doc):
+        canvas.saveState()
+        if os.path.exists(LOGO_PATH):
+            canvas.drawImage(LOGO_PATH,
+                             letter[0] - 0.75*inch - 1.4*inch,
+                             letter[1] - 0.62*inch,
+                             width=1.4*inch, height=0.38*inch,
+                             preserveAspectRatio=True, mask="auto")
+        canvas.setFont("Helvetica-Bold", 8)
+        canvas.setFillColor(colors.HexColor("#1F3864"))
+        canvas.drawString(0.75*inch, letter[1] - 0.45*inch, "APPRAISAL ASSIGNMENT INTAKE")
+        canvas.setFont("Helvetica", 7.5)
+        canvas.setFillColor(colors.HexColor("#555555"))
+        canvas.drawString(0.75*inch, letter[1] - 0.60*inch, address)
+        canvas.setStrokeColor(colors.HexColor("#2E5FA3"))
+        canvas.setLineWidth(1)
+        canvas.line(0.75*inch, letter[1] - 0.68*inch, letter[0] - 0.75*inch, letter[1] - 0.68*inch)
+        canvas.line(0.75*inch, 0.55*inch, letter[0] - 0.75*inch, 0.55*inch)
+        canvas.setFont("Helvetica", 7)
+        canvas.setFillColor(colors.HexColor("#888888"))
+        canvas.drawString(0.75*inch, 0.38*inch,
+            "A-Tech Appraisal Co., LLC | Absolute Value Management")
+        canvas.drawRightString(letter[0] - 0.75*inch, 0.38*inch, f"Page {doc.page}")
+        canvas.restoreState()
+
+    story = []
+
+    # Parse markdown into ReportLab elements
+    lines = intake_text.split("\n")
+    in_table = False
+    table_rows = []
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Skip horizontal rules and empty TOTAL_JSON remnants
+        if stripped in ("---", "***", "___") or stripped.startswith("TOTAL_JSON"):
+            if in_table and table_rows:
+                # Flush table
+                if len(table_rows) > 1:
+                    col_count = max(len(r) for r in table_rows)
+                    col_w = (letter[0] - 1.5*inch) / col_count
+                    tbl = Table(
+                        [[Paragraph(str(c), styles["body"]) for c in row] for row in table_rows],
+                        colWidths=[col_w]*col_count
+                    )
+                    tbl.setStyle(TableStyle([
+                        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#BDD7EE")),
+                        ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+                        ("FONTSIZE", (0,0), (-1,-1), 8.5),
+                        ("GRID", (0,0), (-1,-1), 0.4, colors.HexColor("#CCCCCC")),
+                        ("ROWBACKGROUNDS", (0,1), (-1,-1),
+                         [colors.white, colors.HexColor("#F5F8FF")]),
+                        ("TOPPADDING", (0,0), (-1,-1), 4),
+                        ("BOTTOMPADDING", (0,0), (-1,-1), 4),
+                        ("LEFTPADDING", (0,0), (-1,-1), 6),
+                        ("RIGHTPADDING", (0,0), (-1,-1), 6),
+                        ("VALIGN", (0,0), (-1,-1), "TOP"),
+                    ]))
+                    story.append(tbl)
+                    story.append(Spacer(1, 6))
+                table_rows = []
+                in_table = False
+            if stripped in ("---", "***", "___"):
+                story.append(HRFlowable(width="100%", thickness=0.5,
+                                         color=colors.HexColor("#CCCCCC"),
+                                         spaceAfter=4, spaceBefore=4))
+            continue
+
+        # Markdown table rows
+        if stripped.startswith("|") and stripped.endswith("|"):
+            cells = [c.strip() for c in stripped.split("|")[1:-1]]
+            if all(set(c) <= set("-: ") for c in cells):
+                continue  # separator row
+            table_rows.append(cells)
+            in_table = True
+            continue
+        else:
+            if in_table and table_rows:
+                col_count = max(len(r) for r in table_rows)
+                col_w = (letter[0] - 1.5*inch) / col_count
+                tbl = Table(
+                    [[Paragraph(str(c), styles["body"]) for c in row] for row in table_rows],
+                    colWidths=[col_w]*col_count
+                )
+                tbl.setStyle(TableStyle([
+                    ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#BDD7EE")),
+                    ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0,0), (-1,-1), 8.5),
+                    ("GRID", (0,0), (-1,-1), 0.4, colors.HexColor("#CCCCCC")),
+                    ("ROWBACKGROUNDS", (0,1), (-1,-1),
+                     [colors.white, colors.HexColor("#F5F8FF")]),
+                    ("TOPPADDING", (0,0), (-1,-1), 4),
+                    ("BOTTOMPADDING", (0,0), (-1,-1), 4),
+                    ("LEFTPADDING", (0,0), (-1,-1), 6),
+                    ("RIGHTPADDING", (0,0), (-1,-1), 6),
+                    ("VALIGN", (0,0), (-1,-1), "TOP"),
+                ]))
+                story.append(tbl)
+                story.append(Spacer(1, 6))
+                table_rows = []
+                in_table = False
+
+        if not stripped:
+            story.append(Spacer(1, 4))
+            continue
+
+        # Headings
+        if stripped.startswith("## "):
+            story.append(Paragraph(stripped[3:].strip(), styles["title"]))
+        elif stripped.startswith("### ") or stripped.startswith("#### "):
+            story.append(Paragraph(stripped.lstrip("#").strip(), styles["h2"]))
+        elif stripped.startswith("**") and stripped.endswith("**") and len(stripped) > 4:
+            story.append(Paragraph(stripped.strip("*"), styles["bold"]))
+        elif stripped.startswith("- [x]") or stripped.startswith("-[x]"):
+            text = stripped[5:].strip()
+            story.append(Paragraph(f"⚠ {text}", styles["flag"]))
+        elif stripped.startswith("- ") or stripped.startswith("* "):
+            text = stripped[2:].strip()
+            # Inline bold
+            text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+            story.append(Paragraph(f"• {text}", styles["body"]))
+        elif re.match(r"^\d+\.", stripped):
+            text = re.sub(r"^\d+\.\s*", "", stripped)
+            text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+            story.append(Paragraph(f"{stripped.split('.')[0]}. {text}", styles["body"]))
+        else:
+            # Regular paragraph — handle inline bold
+            text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", stripped)
+            story.append(Paragraph(text, styles["body"]))
+
+    doc.build(story, onFirstPage=_hf, onLaterPages=_hf)
+    buf.seek(0)
+    return buf.getvalue()
+
+
+def build_intake_docx(intake_text, address="Subject Property"):
+    """Convert intake markdown text to a Word document using python-docx."""
+    from io import BytesIO
+    try:
+        from docx import Document as DocxDocument
+        from docx.shared import Pt, Inches, RGBColor
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.oxml.ns import qn
+        from docx.oxml import OxmlElement
+    except ImportError:
+        return None
+
+    doc = DocxDocument()
+
+    # Page setup — US Letter, 0.75" margins
+    section = doc.sections[0]
+    section.page_width  = int(8.5  * 914400)
+    section.page_height = int(11.0 * 914400)
+    for attr in ("left_margin","right_margin","top_margin","bottom_margin"):
+        setattr(section, attr, int(0.75 * 914400))
+
+    # Helper: set paragraph font
+    def _set_run(run, bold=False, size=10, color=None, italic=False):
+        run.bold   = bold
+        run.italic = italic
+        run.font.size = Pt(size)
+        if color:
+            run.font.color.rgb = RGBColor(*color)
+
+    def _heading(text, level=1):
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(8 if level == 1 else 4)
+        p.paragraph_format.space_after  = Pt(4)
+        run = p.add_run(text)
+        if level == 1:
+            _set_run(run, bold=True, size=13, color=(31, 56, 100))
+        else:
+            _set_run(run, bold=True, size=11, color=(46, 95, 163))
+        return p
+
+    def _body(text, bold=False, color=None):
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(2)
+        run = p.add_run(text)
+        _set_run(run, bold=bold, size=9.5,
+                 color=color or (51, 51, 51))
+        return p
+
+    def _flag(text):
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(2)
+        run = p.add_run(f"⚠ {text}")
+        _set_run(run, size=9.5, color=(192, 0, 0))
+        return p
+
+    def _bullet(text):
+        p = doc.add_paragraph(style="List Bullet")
+        p.paragraph_format.space_after = Pt(1)
+        # Strip inline ** bold markers for simplicity
+        clean = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+        run = p.add_run(clean)
+        _set_run(run, size=9.5)
+        return p
+
+    def _add_table(rows):
+        if not rows:
+            return
+        col_count = max(len(r) for r in rows)
+        tbl = doc.add_table(rows=0, cols=col_count)
+        tbl.style = "Table Grid"
+        for i, row_data in enumerate(rows):
+            row = tbl.add_row()
+            for j, cell_text in enumerate(row_data):
+                cell = row.cells[j]
+                cell.text = str(cell_text) if j < len(row_data) else ""
+                run = cell.paragraphs[0].runs
+                if run:
+                    run[0].font.size = Pt(9)
+                    if i == 0:
+                        run[0].bold = True
+                # Header row shading
+                if i == 0:
+                    tc = cell._tc
+                    tcPr = tc.get_or_add_tcPr()
+                    shd = OxmlElement("w:shd")
+                    shd.set(qn("w:val"), "clear")
+                    shd.set(qn("w:color"), "auto")
+                    shd.set(qn("w:fill"), "BDD7EE")
+                    tcPr.append(shd)
+        doc.add_paragraph()  # spacing after table
+
+    # Title header
+    title_p = doc.add_paragraph()
+    title_p.paragraph_format.space_after = Pt(2)
+    r = title_p.add_run("APPRAISAL ASSIGNMENT INTAKE")
+    _set_run(r, bold=True, size=14, color=(31, 56, 100))
+
+    sub_p = doc.add_paragraph()
+    sub_p.paragraph_format.space_after = Pt(8)
+    r = sub_p.add_run(address)
+    _set_run(r, size=10, color=(85, 85, 85))
+
+    # Parse and render
+    lines = intake_text.split("\n")
+    in_table = False
+    table_rows = []
+
+    for line in lines:
+        stripped = line.strip()
+
+        if stripped.startswith("TOTAL_JSON"):
+            break  # stop at JSON block
+
+        if stripped in ("---", "***", "___"):
+            if in_table and table_rows:
+                _add_table(table_rows)
+                table_rows = []
+                in_table = False
+            # Horizontal rule via paragraph border
+            p = doc.add_paragraph()
+            pPr = p._p.get_or_add_pPr()
+            pBdr = OxmlElement("w:pBdr")
+            bottom = OxmlElement("w:bottom")
+            bottom.set(qn("w:val"), "single")
+            bottom.set(qn("w:sz"), "4")
+            bottom.set(qn("w:space"), "1")
+            bottom.set(qn("w:color"), "AAAAAA")
+            pBdr.append(bottom)
+            pPr.append(pBdr)
+            continue
+
+        if stripped.startswith("|") and stripped.endswith("|"):
+            cells = [c.strip() for c in stripped.split("|")[1:-1]]
+            if all(set(c) <= set("-: ") for c in cells):
+                continue
+            table_rows.append(cells)
+            in_table = True
+            continue
+        else:
+            if in_table and table_rows:
+                _add_table(table_rows)
+                table_rows = []
+                in_table = False
+
+        if not stripped:
+            doc.add_paragraph()
+            continue
+
+        if stripped.startswith("## "):
+            _heading(stripped[3:].strip(), level=1)
+        elif stripped.startswith("### ") or stripped.startswith("#### "):
+            _heading(stripped.lstrip("#").strip(), level=2)
+        elif stripped.startswith("**") and stripped.endswith("**") and len(stripped) > 4:
+            _body(stripped.strip("*"), bold=True)
+        elif stripped.startswith("- [x]") or stripped.startswith("-[x]"):
+            _flag(stripped[5:].strip())
+        elif stripped.startswith("- ") or stripped.startswith("* "):
+            _bullet(stripped[2:].strip())
+        elif re.match(r"^\d+\.", stripped):
+            _bullet(re.sub(r"^\d+\.\s*", "", stripped))
+        else:
+            clean = re.sub(r"\*\*(.+?)\*\*", r"\1", stripped)
+            _body(clean)
+
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
+
+
 def send_report_email(to_email, subject, body, pdf_bytes, filename):
     """Send PDF report via Gmail SMTP."""
     import smtplib
@@ -2120,6 +2456,50 @@ IMPORTANT RULES:
                     height=600,
                     key="intake_output_raw"
                 )
+
+                # ── Export buttons ────────────────────────────────────────
+                st.divider()
+                st.markdown("#### 📥 Download Intake Report")
+                dl1, dl2 = st.columns(2)
+
+                # Derive address for filename/header
+                addr_line = ""
+                for ln in output_text.split("\n")[:10]:
+                    if ln.strip().startswith("**Property Address"):
+                        addr_line = ln.split(":",1)[-1].strip().strip("*").strip()
+                        break
+                safe_addr = re.sub(r"[^\w\s-]", "", addr_line).strip().replace(" ", "_") or "intake"
+
+                with dl1:
+                    try:
+                        pdf_bytes = build_intake_pdf(output_text, addr_line or "Subject Property")
+                        st.download_button(
+                            label="⬇️ Download PDF",
+                            data=pdf_bytes,
+                            file_name=f"{safe_addr}_intake.pdf",
+                            mime="application/pdf",
+                            use_container_width=True,
+                            key="intake_dl_pdf"
+                        )
+                    except Exception as e:
+                        st.warning(f"PDF export error: {e}")
+
+                with dl2:
+                    try:
+                        docx_bytes = build_intake_docx(output_text, addr_line or "Subject Property")
+                        if docx_bytes:
+                            st.download_button(
+                                label="⬇️ Download Word (.docx)",
+                                data=docx_bytes,
+                                file_name=f"{safe_addr}_intake.docx",
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                use_container_width=True,
+                                key="intake_dl_docx"
+                            )
+                        else:
+                            st.warning("python-docx not available — install it to enable Word export.")
+                    except Exception as e:
+                        st.warning(f"Word export error: {e}")
 
                 # Send to TOTAL button
                 if json_str:
