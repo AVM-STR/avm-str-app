@@ -2008,10 +2008,11 @@ with tab_intake:
     with st.container():
         status = st.session_state.get("pipeline_status", "🟢 Active — starting up...")
         st.info(f"**📬 Email Pipeline:** {status}")
+        cfg_display = _get_config()
         st.caption(
-            f"Polling avstr1@gmail.com every 5 min for forwarded ANOW orders. "
-            f"Forward orders with attachments to avstr1@gmail.com → "
-            f"intake PDF delivered to swwebb34@a-techappraisal.com."
+            f"Polling {cfg_display['gmail']} every 5 min for forwarded ANOW orders. "
+            f"Forward orders with attachments to {cfg_display['gmail']} → "
+            f"intake PDF delivered to {cfg_display['delivery']}."
         )
     st.divider()
 
