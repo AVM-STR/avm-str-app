@@ -1515,11 +1515,10 @@ def _send_intake_email(gmail, password, delivery, order, pdf_bytes):
         s.sendmail(gmail, delivery, msg.as_string())
 
 
-def _pipeline_loop():
+def _pipeline_loop(cfg):
     """Background thread — polls Gmail every POLL_INTERVAL seconds."""
-    cfg = _get_config()
     if not cfg["password"] or not cfg["api_key"]:
-        st.session_state["pipeline_status"] = "⚠️ Missing credentials — check secrets"
+        st.session_state["pipeline_status"] = "⚠️ Missing credentials — check Streamlit secrets"
         return
 
     while True:
@@ -1581,9 +1580,18 @@ def _pipeline_loop():
 def _start_pipeline():
     """Start the background thread once per session."""
     if not st.session_state.get("pipeline_started"):
+        cfg = _get_config()
+        if not cfg["password"]:
+            st.session_state["pipeline_status"] = "⚠️ GMAIL_APP_PASSWORD not set in secrets"
+            st.session_state["pipeline_started"] = True
+            return
+        if not cfg["api_key"]:
+            st.session_state["pipeline_status"] = "⚠️ ANTHROPIC_API_KEY not set in secrets"
+            st.session_state["pipeline_started"] = True
+            return
         st.session_state["pipeline_started"] = True
-        st.session_state["pipeline_status"]  = "🟢 Active — starting up..."
-        t = threading.Thread(target=_pipeline_loop, daemon=True)
+        st.session_state["pipeline_status"]  = f"🟢 Active — starting up... (polling {cfg['gmail']})"
+        t = threading.Thread(target=_pipeline_loop, args=(cfg,), daemon=True)
         t.start()
 
 # ── Password Protection ───────────────────────────────────────────────────────
