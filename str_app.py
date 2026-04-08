@@ -3,7 +3,14 @@ AVM Short-Term Rental Report Generator
 Streamlit Web App
 """
 
-import os, re, io, tempfile, json
+import os, re, io, tempfile, json, threading, imaplib, smtplib, time
+from email import policy
+from email.parser import BytesParser
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
+from datetime import datetime
+from bs4 import BeautifulSoup
 import streamlit as st
 import fitz  # pymupdf
 import pandas as pd
@@ -1196,6 +1203,389 @@ st.set_page_config(
     layout="centered"
 )
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ANOW EMAIL PIPELINE — Background Thread
+# ══════════════════════════════════════════════════════════════════════════════
+
+POLL_INTERVAL = 300  # 5 minutes
+
+def _get_config():
+    """Load Gmail config from Streamlit secrets or env."""
+    def _s(key, default=""):
+        try:
+            return st.secrets[key]
+        except Exception:
+            return os.environ.get(key, default)
+    return {
+        "gmail":    _s("GMAIL_ADDRESS",     "avstr1@gmail.com"),
+        "password": _s("GMAIL_APP_PASSWORD", ""),
+        "delivery": _s("DELIVERY_EMAIL",    "swwebb34@a-techappraisal.com"),
+        "api_key":  _s("ANTHROPIC_API_KEY", ""),
+    }
+
+
+def _parse_anow_email(raw_bytes):
+    """Parse forwarded ANOW email. Returns (order dict, attachments list)."""
+    msg = BytesParser(policy=policy.default).parsebytes(raw_bytes)
+    order = {
+        "subject":        msg.get("subject", ""),
+        "address_line1":  "",
+        "city_state_zip": "",
+        "full_address":   "",
+        "due_date":       "",
+        "ordered_by":     "",
+        "lender":         "",
+        "borrower":       "",
+        "contact_name":   "",
+        "contact_phone":  "",
+    }
+    attachments = []
+
+    for part in msg.walk():
+        ct   = part.get_content_type()
+        disp = str(part.get("Content-Disposition", ""))
+        if "attachment" in disp or part.get_filename():
+            fname = part.get_filename() or "attachment"
+            fdata = part.get_payload(decode=True)
+            if fdata:
+                attachments.append({"filename": fname, "data": fdata, "media_type": ct})
+            continue
+        if ct == "text/html" and not order["borrower"]:
+            html = part.get_payload(decode=True).decode("utf-8", errors="replace")
+            _parse_body(BeautifulSoup(html, "html.parser").get_text("\n"), order)
+        elif ct == "text/plain" and not order["borrower"]:
+            _parse_body(part.get_payload(decode=True).decode("utf-8", errors="replace"), order)
+
+    parts = [order["address_line1"], order["city_state_zip"]]
+    order["full_address"] = ", ".join(p for p in parts if p)
+    if not order["address_line1"]:
+        m = re.search(r"New Order\s*[-–]\s*(.+?)\.?\s*$", order["subject"], re.IGNORECASE)
+        if m:
+            order["address_line1"] = m.group(1).strip()
+            order["full_address"]  = order["address_line1"]
+    return order, attachments
+
+
+def _parse_body(text, order):
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    start = next((i+1 for i, l in enumerate(lines) if l.upper() == "DETAILS"), None)
+    if start is None:
+        return
+    i = start
+    if i < len(lines) and not lines[i].upper().startswith("DUE"):
+        order["address_line1"] = lines[i]; i += 1
+    if i < len(lines) and re.search(r"\d{5}", lines[i]):
+        order["city_state_zip"] = lines[i]; i += 1
+    label_map = {
+        "due:": "due_date", "ordered by:": "ordered_by",
+        "addressed to:": "lender", "borrower:": "borrower",
+        "contact for access:": "contact_name",
+    }
+    while i < len(lines):
+        lower = lines[i].lower()
+        matched = False
+        for label, key in label_map.items():
+            if lower.startswith(label):
+                inline = lines[i][len(label):].strip()
+                if inline:
+                    order[key] = inline
+                elif i+1 < len(lines):
+                    i += 1; order[key] = lines[i]
+                matched = True; break
+        if not matched and order["contact_name"] and not order["contact_phone"]:
+            if re.match(r"[\(\d\+]", lines[i]):
+                order["contact_phone"] = lines[i]
+        i += 1
+
+
+PIPELINE_SYSTEM_PROMPT = """You are an expert certified residential appraiser assistant for A-Tech Appraisal Co., LLC in Rhode Island and Massachusetts. Generate a USPAP-compliant pre-inspection intake report from the order details and attached documents.
+
+Never use subjective terms: "convenient," "desirable," "charming," "ideal," or "easy."
+Never reference GLA measurement source in improvement description — just state the number.
+Finished below-grade space is never included in above-grade GLA.
+
+OUTPUT FORMAT:
+
+## 🏠 APPRAISAL ASSIGNMENT INTAKE
+
+**Property Address:**
+**City/Town, State, Zip:**
+**County:**
+**Form Type:**
+**Intended Use:**
+**Lender/AMC:**
+**Due Date:**
+
+---
+
+**OWNERSHIP & TRANSACTION**
+- Current Owner:
+- Borrower:
+- Book & Page:
+- Last Sale Price / Date:
+- Contract Price:
+- Tax Year / Amount:
+
+---
+
+**PROPERTY BASICS**
+- Style:
+- Year Built:
+- GLA (above grade):
+- Basement:
+- Bedrooms/Baths:
+- Garage:
+- Lot Size:
+- Public Water/Sewer:
+- Zoning:
+- Flood Zone:
+
+---
+
+**GLA SUB-AREA BREAKDOWN** [if sketch available]
+| Level | Description | SF |
+|---|---|---|
+
+---
+
+**SALES HISTORY**
+| Owner | Price | Date | Notes |
+|---|---|---|---|
+
+---
+
+**COMPLEXITY FLAGS**
+[x] flag each issue found
+
+---
+
+**ATTACHMENTS RECEIVED**
+[list what was provided]
+
+---
+
+**NEIGHBORHOOD BOUNDARIES**
+The subject neighborhood is bounded to the north by [X], to the south by [X], to the east by [X], and to the west by [X].
+
+---
+
+**NEIGHBORHOOD DESCRIPTION**
+[4-5 factual sentences: location, character, access, utilities, Other land use]
+
+---
+
+**LAND USE GRID**
+| Use | % |
+|---|---|
+| Single Family | _% |
+| 2-4 Unit | _% |
+| Multi-Family (5+) | _% |
+| Commercial | _% |
+| Other (describe) | _% |
+
+---
+
+**SITE SECTION**
+[2-3 sentences: lot size, zoning, utilities, flood zone]
+
+---
+
+**IMPROVEMENT DESCRIPTION**
+[Begin: "The appraiser has inspected the interior and exterior of the subject property and researched municipal records for data reported herein."]
+[Cover style, year built, GLA, rooms, bed/bath, exterior, roof, foundation, basement, heat/cool, garage, features.]
+[End: "Condition and quality ratings to be determined at inspection."]
+
+---
+
+**PRIORITY ITEMS**
+[Numbered list — most important items to confirm at inspection]"""
+
+
+def _build_claude_content(order, attachments):
+    import base64
+    content = []
+    order_text = (
+        f"New ANOW Appraisal Order\n\n"
+        f"Property: {order['full_address']}\n"
+        f"Due: {order['due_date']}\n"
+        f"AMC: {order['ordered_by']}\n"
+        f"Lender: {order['lender']}\n"
+        f"Borrower: {order['borrower']}\n"
+        f"Contact: {order['contact_name']} {order['contact_phone']}\n\n"
+        f"Generate the full pre-inspection intake report."
+    )
+    content.append({"type": "text", "text": order_text})
+
+    image_labels = {
+        "map": "Apple Maps screenshot — use boxed/circled landmarks for N/S/E/W boundaries",
+        "gis": "GIS/Parcel map — use for land use grid and site data",
+        "screen": "Screenshot — extract any relevant appraisal data",
+    }
+    pdf_titles = {
+        "tax": "Tax Card / Assessor Record",
+        "vision": "Tax Card / Assessor Record",
+        "mls": "MLS Sheet",
+        "360": "MLS Sheet",
+        "contract": "Purchase and Sales Agreement",
+        "measure": "Field Measurement Report",
+        "gla": "Field Measurement Report",
+    }
+
+    for att in attachments:
+        fname = att["filename"].lower()
+        data  = att["data"]
+        mime  = att["media_type"].lower()
+
+        if "pdf" in mime or fname.endswith(".pdf"):
+            b64   = base64.standard_b64encode(data).decode()
+            title = next((v for k, v in pdf_titles.items() if k in fname),
+                         f"Document: {att['filename']}")
+            content.append({
+                "type": "document",
+                "source": {"type": "base64", "media_type": "application/pdf", "data": b64},
+                "title": title
+            })
+        elif any(ext in fname for ext in [".jpg",".jpeg",".png"]) or "image" in mime:
+            # Compress if needed
+            if len(data) > 4*1024*1024:
+                from io import BytesIO
+                img = PILImage.open(BytesIO(data)).convert("RGB")
+                q = 85
+                while q >= 30:
+                    buf = BytesIO()
+                    img.save(buf, format="JPEG", quality=q, optimize=True)
+                    if len(buf.getvalue()) <= 4*1024*1024:
+                        data = buf.getvalue(); break
+                    q -= 10
+            b64   = base64.standard_b64encode(data).decode()
+            label = next((v for k, v in image_labels.items() if k in fname),
+                         "Uploaded image — use for any relevant appraisal data")
+            content.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}
+            })
+            content.append({"type": "text", "text": f"[Above: {label}]"})
+
+    return content
+
+
+def _call_claude_pipeline(content, api_key):
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+        "anthropic-beta": "pdfs-2024-09-25",
+    }
+    payload = {
+        "model": "claude-opus-4-5",
+        "max_tokens": 4000,
+        "system": PIPELINE_SYSTEM_PROMPT,
+        "messages": [{"role": "user", "content": content}],
+    }
+    resp = requests.post("https://api.anthropic.com/v1/messages",
+                         headers=headers, json=payload, timeout=120)
+    resp.raise_for_status()
+    return resp.json()["content"][0]["text"].strip()
+
+
+def _send_intake_email(gmail, password, delivery, order, pdf_bytes):
+    address  = order.get("full_address", "Subject Property")
+    borrower = order.get("borrower", "")
+    due      = order.get("due_date", "")
+    safe     = re.sub(r"[^\w\s-]", "", address).replace(" ", "_")[:60]
+
+    msg = MIMEMultipart()
+    msg["From"]    = gmail
+    msg["To"]      = delivery
+    msg["Subject"] = f"Intake Report — {address}"
+    msg.attach(MIMEText(
+        f"Pre-inspection intake for {address}.\n\n"
+        f"Borrower: {borrower}\nDue: {due}\n\n"
+        f"Review flags and priority items before inspection.\n\n"
+        f"— A-Tech Intake Pipeline", "plain"
+    ))
+    att = MIMEApplication(pdf_bytes, _subtype="pdf")
+    att.add_header("Content-Disposition", "attachment",
+                   filename=f"{safe}_intake.pdf")
+    msg.attach(att)
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
+        s.login(gmail, password)
+        s.sendmail(gmail, delivery, msg.as_string())
+
+
+def _pipeline_loop():
+    """Background thread — polls Gmail every POLL_INTERVAL seconds."""
+    cfg = _get_config()
+    if not cfg["password"] or not cfg["api_key"]:
+        st.session_state["pipeline_status"] = "⚠️ Missing credentials — check secrets"
+        return
+
+    while True:
+        try:
+            st.session_state["pipeline_status"] = (
+                f"🟢 Active — last checked {datetime.now().strftime('%I:%M %p')}"
+            )
+            imap = imaplib.IMAP4_SSL("imap.gmail.com")
+            imap.login(cfg["gmail"], cfg["password"])
+            imap.select("INBOX")
+
+            _, data = imap.uid("search", None, '(UNSEEN SUBJECT "New Order")')
+            uids = data[0].split() if data[0] else []
+
+            for uid in uids:
+                try:
+                    _, msg_data = imap.uid("fetch", uid, "(RFC822)")
+                    if not msg_data or not msg_data[0]:
+                        continue
+                    raw = msg_data[0][1]
+
+                    order, attachments = _parse_anow_email(raw)
+                    address = order.get("full_address") or "Unknown"
+
+                    st.session_state["pipeline_status"] = (
+                        f"⚙️ Processing {address}..."
+                    )
+
+                    content    = _build_claude_content(order, attachments)
+                    intake_txt = _call_claude_pipeline(content, cfg["api_key"])
+                    pdf_bytes  = build_intake_pdf(intake_txt, address)
+                    _send_intake_email(cfg["gmail"], cfg["password"],
+                                       cfg["delivery"], order, pdf_bytes)
+
+                    # Mark read
+                    imap.uid("store", uid, "+FLAGS", "\\Seen")
+
+                    st.session_state["pipeline_status"] = (
+                        f"🟢 Active — last processed: {address} "
+                        f"at {datetime.now().strftime('%I:%M %p')}"
+                    )
+                    st.session_state["pipeline_last"] = address
+
+                except Exception as e:
+                    st.session_state["pipeline_status"] = f"⚠️ Error on order: {e}"
+                    try:
+                        imap.uid("store", uid, "+FLAGS", "\\Seen")
+                    except Exception:
+                        pass
+
+            imap.logout()
+
+        except Exception as e:
+            st.session_state["pipeline_status"] = f"⚠️ Connection error: {e}"
+
+        time.sleep(POLL_INTERVAL)
+
+
+def _start_pipeline():
+    """Start the background thread once per session."""
+    if not st.session_state.get("pipeline_started"):
+        st.session_state["pipeline_started"] = True
+        st.session_state["pipeline_status"]  = "🟢 Active — starting up..."
+        t = threading.Thread(target=_pipeline_loop, daemon=True)
+        t.start()
+
 # ── Password Protection ───────────────────────────────────────────────────────
 def check_password():
     if "authenticated" not in st.session_state:
@@ -1604,12 +1994,26 @@ with tab_history:
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_intake:
 
+    # ── Start background pipeline ─────────────────────────────────────────────
+    _start_pipeline()
+
     st.subheader("🏠 AI Intake Assistant")
     st.caption(
         "Upload your tax card, Apple Maps screenshot, GIS screenshot, MLS sheet, "
         "or contract — add any notes — and Claude will generate a fully populated "
         "intake template ready to copy into TOTAL."
     )
+
+    # ── Pipeline status indicator ─────────────────────────────────────────────
+    with st.container():
+        status = st.session_state.get("pipeline_status", "🟢 Active — starting up...")
+        st.info(f"**📬 Email Pipeline:** {status}")
+        st.caption(
+            f"Polling avstr1@gmail.com every 5 min for forwarded ANOW orders. "
+            f"Forward orders with attachments to avstr1@gmail.com → "
+            f"intake PDF delivered to swwebb34@a-techappraisal.com."
+        )
+    st.divider()
 
     # ── API Key (from Streamlit secrets or environment variable) ─────────────
     try:
