@@ -1711,8 +1711,8 @@ OUTPUT FORMAT — sections must appear in this exact order, matching 1004 page 1
 **County:**
 **Borrower:**
 **Owner of Public Record:**
-**Legal Description:**
-**Assessor Parcel #:**
+**Legal Description (Book & Page):** [Most recent deed Book & Page and recording date e.g. "Book 840, Page 144, recorded 08/20/2013"]
+**Assessor Parcel #:** [Assessor account/parcel number from tax card]
 **Tax Year:**
 **Tax Amount $:**
 **Neighborhood Name:**
@@ -1857,7 +1857,9 @@ IMPORTANT RULES:
 10. Permit history noted but not over-emphasized
 11. Land use grid reflects immediate neighborhood only
 12. Note when water/sewer needs field confirmation
-13. Contract Summary is always a complete paste-ready sentence with no brackets remaining"""
+13. Contract Summary is always a complete paste-ready sentence with no brackets remaining
+14. Legal Description = Book & Page and recording date of the most recent deed — never the plat/lot description
+15. Assessor Parcel # = the tax assessor account number — always a separate field from Legal Description"""
 
     # ── Generate Button ───────────────────────────────────────────────────────
     st.divider()
